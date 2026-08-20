@@ -1,0 +1,191 @@
+// GATE 1 — pixel-audit invariants ported to /board/ (T1.2/T1.3 visual gate).
+// Launches headless chromium against the LIVE server (read-only) at both
+// 1920x1080 and 1280x720, over board states [root, a confirm_N, a cat_N,
+// bar-with-3-chips]. Invariants: no .dwell target offscreen/occluded (center
+// elementFromPoint returns the target), no horizontal scroll, min inter-target
+// gap >= 28px (pairs <34px are warnings), labels never overflow horizontally,
+// computed label font-size >= 74px, chrome never wins a tile's center pixel.
+// Runs under `node --test` or `node tests/board-pixel.test.mjs`.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+
+const BASE = "http://localhost:8377/board/";
+const SHOTS = fileURLToPath(new URL("./board-shots/", import.meta.url));
+fs.mkdirSync(SHOTS, { recursive: true });
+
+const VIEWPORTS = [{ w: 1920, h: 1080 }, { w: 1280, h: 720 }];
+const STATES = [
+  { name: "root", setup: async (p) => {} },
+  { name: "confirm_2", setup: async (p) => { await p.evaluate(() => window.Board.show("confirm_2")); } },
+  { name: "cat_top", setup: async (p) => { await p.evaluate(() => window.Board.show("cat_top")); } },
+  { name: "bar-3-chips", setup: async (p) => {
+      await p.evaluate(() => {
+        window.Board.show("cat_top");
+        window.Board.appendChip({ label: "Rainbow tee", image: "wardrobe/images/item_074b60ce51.jpg" });
+        window.Board.appendChip({ label: "Mint shorts", image: "wardrobe/images/item_8fe9749252.jpg" });
+        window.Board.appendChip({ label: "Yes", symbol: "yes" });
+      });
+    } },
+];
+
+function MEASURE() {
+  const vw = innerWidth, vh = innerHeight;
+  const vis = (el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return r.width > 2 && r.height > 2 && cs.display !== "none" && cs.visibility !== "hidden" &&
+      r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw; };
+  const lbl = (el) => el.id || el.getAttribute("aria-label") || (el.textContent || "").trim().slice(0, 16) || String(el.className);
+  const targets = [...document.querySelectorAll(".dwell")].filter(
+    (el) => vis(el) && !el.hasAttribute("data-dwell-disabled") && el.getAttribute("aria-disabled") !== "true");
+  const rects = targets.map((el) => ({ el, r: el.getBoundingClientRect(), label: lbl(el) }));
+
+  const offscreen = [];
+  for (const { r, label } of rects)
+    if (r.left < -0.5 || r.top < -0.5 || r.right > vw + 0.5 || r.bottom > vh + 0.5)
+      offscreen.push({ label, l: +r.left.toFixed(1), t: +r.top.toFixed(1), r: +r.right.toFixed(1), b: +r.bottom.toFixed(1) });
+
+  const hscroll = document.documentElement.scrollWidth > vw + 1 || document.body.scrollWidth > vw + 1;
+
+  const occluded = [], chromeWins = [];
+  for (const { el, r, label } of rects) {
+    const cx = Math.min(vw - 1, Math.max(1, (r.left + r.right) / 2));
+    const cy = Math.min(vh - 1, Math.max(1, (r.top + r.bottom) / 2));
+    const top = document.elementsFromPoint(cx, cy)[0];
+    if (top && top !== el && !el.contains(top) && !top.contains(el)) {
+      occluded.push({ label, by: top.id || String(top.className).slice(0, 40) });
+      if (top.closest && top.closest(".msgbar")) chromeWins.push({ label, by: String(top.className).slice(0, 40) });
+    }
+  }
+
+  let minGap = Infinity, minPair = null; const warns = [];
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+    const a = rects[i].r, b = rects[j].r;
+    const dx = Math.max(a.left - b.right, b.left - a.right), dy = Math.max(a.top - b.bottom, b.top - a.bottom);
+    const d = (dx < 0 && dy < 0) ? Math.max(dx, dy) : Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
+    if (d < minGap) { minGap = d; minPair = [rects[i].label, rects[j].label]; }
+    if (d < 34) warns.push({ a: rects[i].label, b: rects[j].label, gap: +d.toFixed(1) });
+  }
+
+  // WORD INTEGRITY (Gate-1): no partial words, ever.
+  //  - CSS must only allow word-boundary wraps (no break-word/anywhere/hyphens)
+  //  - no horizontal overflow (a whole word never exceeds its line box)
+  //  - no vertical clipping (label rect fully inside its tile)
+  const labelOverflow = [], fontViolations = [], breakRules = [], clipped = [], subFloor = [];
+  for (const el of document.querySelectorAll(".tile-label,.chip-label")) {
+    if (!vis(el)) continue;
+    const t = (el.textContent || "").trim().slice(0, 20);
+    const cs = getComputedStyle(el);
+    if (cs.wordBreak !== "normal" || cs.hyphens === "auto" ||
+        (cs.overflowWrap && cs.overflowWrap !== "normal"))
+      breakRules.push({ t, wordBreak: cs.wordBreak, overflowWrap: cs.overflowWrap, hyphens: cs.hyphens });
+    if (el.scrollWidth > el.clientWidth + 1)
+      labelOverflow.push({ t, sw: el.scrollWidth, cw: el.clientWidth });
+    const cell = el.closest(".cell");
+    if (cell) {
+      const lr = el.getBoundingClientRect(), cr = cell.getBoundingClientRect();
+      if (lr.top < cr.top - 1 || lr.bottom > cr.bottom + 1)
+        clipped.push({ t, lt: +lr.top.toFixed(1), lb: +lr.bottom.toFixed(1), ct: +cr.top.toFixed(1), cb: +cr.bottom.toFixed(1) });
+      // half-leading descender allowance: css line-height 1.05 < the font's
+      // natural box (~1.16em), so the last line "overflows" by a few px of
+      // half-leading that paints into padding. A REAL clipped line would be a
+      // whole line box (>=1.05em) — 9% of font size can never mask one.
+      const fsz = parseFloat(cs.fontSize);
+      if (el.scrollHeight > el.clientHeight + Math.max(3, fsz * 0.09))
+        clipped.push({ t, sh: el.scrollHeight, ch: el.clientHeight });
+    }
+    const fs = parseFloat(cs.fontSize);
+    if (el.classList.contains("plate")) {
+      // photo-tile plate: SMALL BY DESIGN (dad 7/24 — the photo is the
+      // message). Own floor only; exempt from the 74px text-tile floor.
+      if (fs < 24 - 0.5) fontViolations.push({ t, fs: +fs.toFixed(1), photo: 1 });
+    } else if (fs < 44 - 0.5) fontViolations.push({ t, fs: +fs.toFixed(1) });          // absolute floor
+    else if (fs < 74 - 0.5) {
+      // <74 tolerated ONLY as the renderer's marked, fit-impossible fallback
+      if (el.dataset.fontReduced === "1") subFloor.push({ t, fs: +fs.toFixed(1) });
+      else fontViolations.push({ t, fs: +fs.toFixed(1) });
+    }
+  }
+  // PHOTO SHARE (dad 7/24): on a photo tile the photo keeps ~4/5 of the cell.
+  // Report every share; the threshold is viewport-aware outside (small
+  // viewports pay the fixed 52px plate minimum).
+  const photoShares = [];
+  for (const tile of document.querySelectorAll(".tile.photo")) {
+    if (!vis(tile)) continue;
+    const img = tile.querySelector(".photo-img");
+    if (!img) continue;
+    const share = img.getBoundingClientRect().height / tile.getBoundingClientRect().height;
+    const t = ((tile.querySelector(".tile-label") || {}).textContent || "").trim().slice(0, 20);
+    photoShares.push({ t, share: +share.toFixed(2) });
+  }
+  // FILL (Gate-1 "use the screen"): the grid must span the available width.
+  let fillPct = null;
+  const cells = [...document.querySelectorAll(".board-area .cell")].filter(vis);
+  if (cells.length) {
+    let L = Infinity, R = -Infinity;
+    for (const c of cells) { const r = c.getBoundingClientRect(); L = Math.min(L, r.left); R = Math.max(R, r.right); }
+    fillPct = +(((R - L) / (vw - 2 * 48)) * 100).toFixed(1);
+  }
+
+  return { vw, vh, nTargets: rects.length, offscreen, hscroll, occluded, chromeWins,
+    minGap: rects.length > 1 ? +minGap.toFixed(1) : null, minPair,
+    warnCount: warns.length, warns: warns.slice(0, 6),
+    labelOverflow, fontViolations, breakRules, clipped, subFloor, fillPct, photoShares };
+}
+
+test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
+  const browser = await chromium.launch();
+  const violations = [];
+  const summary = [];
+  try {
+    for (const vp of VIEWPORTS) {
+      const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h } });
+      // keep the run hermetic + fast (don't depend on ElevenLabs / logging)
+      await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+      await ctx.route("**/outfit-event", (r) => r.fulfill({ status: 204, body: "" })); // hermetic: never write her real pick history
+      await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+      await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+      const page = await ctx.newPage();
+      page.on("pageerror", (e) => { violations.push(`PAGEERROR ${vp.w}x${vp.h}: ${e.message}`); });
+      for (const st of STATES) {
+        await page.goto(BASE, { waitUntil: "load" });
+        await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
+        await st.setup(page);
+        await page.waitForTimeout(350);
+        const m = await page.evaluate(MEASURE);
+        const shot = `${st.name}_${vp.w}x${vp.h}.png`;
+        await page.screenshot({ path: SHOTS + shot });
+        summary.push(`${st.name} ${vp.w}x${vp.h}: targets=${m.nTargets} minGap=${m.minGap} warns=${m.warnCount} fill=${m.fillPct}%`
+          + (m.subFloor.length ? ` SUBFLOOR=${JSON.stringify(m.subFloor)}` : ""));
+
+        const tag = `${st.name}@${vp.w}x${vp.h}`;
+        if (m.offscreen.length) violations.push(`${tag} OFFSCREEN ${JSON.stringify(m.offscreen)}`);
+        if (m.hscroll) violations.push(`${tag} HSCROLL`);
+        if (m.occluded.length) violations.push(`${tag} OCCLUDED ${JSON.stringify(m.occluded)}`);
+        if (m.chromeWins.length) violations.push(`${tag} CHROME_WINS ${JSON.stringify(m.chromeWins)}`);
+        if (m.minGap != null && m.minGap < 28) violations.push(`${tag} MINGAP ${m.minGap} ${JSON.stringify(m.minPair)}`);
+        // word integrity — the app's core constraint (she is learning to read)
+        if (m.breakRules.length) violations.push(`${tag} BREAK_CSS ${JSON.stringify(m.breakRules)}`);
+        if (m.labelOverflow.length) violations.push(`${tag} PARTIAL_WORD ${JSON.stringify(m.labelOverflow)}`);
+        if (m.clipped.length) violations.push(`${tag} LABEL_CLIPPED ${JSON.stringify(m.clipped)}`);
+        if (m.fontViolations.length) violations.push(`${tag} FONT_VIOLATION ${JSON.stringify(m.fontViolations)}`);
+        // <74 fallback is never acceptable at 1920x1080 (room is plentiful)
+        if (vp.w >= 1920 && m.subFloor.length) violations.push(`${tag} FONT<74@1920 ${JSON.stringify(m.subFloor)}`);
+        // use the screen: grid must span >=90% of the allowed width
+        if (m.fillPct != null && m.fillPct < 90) violations.push(`${tag} UNDERFILL ${m.fillPct}%`);
+        // photo tiles keep ~4/5 of the cell: >=72% on real-device viewports
+        // (>=1920); >=60% hard floor on the synthetic 720p (fixed 52px plate
+        // minimum dominates the shorter tiles there)
+        const shareFloor = vp.w >= 1920 ? 0.72 : 0.60;
+        const squeezed = (m.photoShares || []).filter(p => p.share < shareFloor);
+        if (squeezed.length) violations.push(`${tag} PHOTO_SQUEEZED ${JSON.stringify(squeezed)}`);
+      }
+      await ctx.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  console.log("PIXEL GATE SUMMARY:\n" + summary.join("\n"));
+  assert.deepEqual(violations, [], "pixel invariants must hold at both viewports");
+});

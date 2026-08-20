@@ -1,0 +1,129 @@
+/* Ellie Board — Phase 1 renderer styles (post Gate-1 review).
+   Two fixed regions: a reserved message-bar strip on top and the board grid
+   below. Both heights are stable => zero layout shift.
+   WORD INTEGRITY: labels wrap at word boundaries ONLY — no break-word, no
+   hyphens, no clipping. board-render.js sizes each label so it always fits. */
+:root{
+  --ink:#17272E; --paper:#F7F9F8; --line:#D8E0DE;
+  --teal:#0F7C8A; --teal-deep:#0B4E58;
+  --bar-bg:#0B4E58; --bar-ink:#FFFFFF;
+  --font:"Segoe UI", system-ui, sans-serif;
+}
+*{box-sizing:border-box; user-select:none}
+html,body{height:100%; margin:0}
+body{background:var(--paper); color:var(--ink);
+     font-family:var(--font); overflow:hidden}
+
+#app{position:fixed; inset:0; display:flex; flex-direction:column;
+     width:100vw; height:100vh}
+
+/* ---- message bar (reserved strip) ---- */
+.msgbar{flex:0 0 auto; width:100%; display:flex; align-items:stretch;
+        gap:28px; padding:14px 24px; background:var(--bar-bg); color:var(--bar-ink);
+        border-bottom:3px solid var(--teal-deep)}
+.chips{flex:1 1 auto; display:flex; align-items:center; gap:18px;
+       overflow:hidden; min-width:0}
+.chip{flex:0 0 auto; display:flex; align-items:center; gap:12px;
+      background:#FFFFFF; color:var(--ink); border-radius:18px;
+      padding:6px 20px; height:100%; max-height:112px}
+.chip-img{height:88px; width:88px; object-fit:contain; border-radius:10px}
+.chip-label{font-size:74px; font-weight:800; line-height:1; white-space:nowrap}
+
+/* top-left door back to TD Snap (dad 8/5, D47): small bar chrome, exit grey
+   (matches the type-exit tile color), full bar-content height. Always a live
+   2400ms dwell target — never disabled. */
+.bardoor{flex:0 0 auto; min-width:150px; border:none; border-radius:20px;
+         cursor:pointer; font-family:var(--font); font-size:74px; line-height:1;
+         background:#6B7B82; color:#FFFFFF; padding:0 18px}
+
+.barctl{flex:0 0 auto; display:flex; align-items:stretch; gap:28px}
+.barbtn{min-width:220px; border:none; border-radius:20px; cursor:pointer;
+        font-family:var(--font); font-size:clamp(74px,4vw,88px); font-weight:800;
+        color:#FFFFFF; background:var(--teal); padding:0 28px}
+#barClear{background:#8A5A2B}
+.barbtn[aria-disabled="true"]{opacity:.38; cursor:default}
+
+/* ---- board grid: fills the whole remaining area with wide rectangles ---- */
+.board-area{flex:1 1 auto; width:100%; display:grid;
+            place-content:center; overflow:hidden}
+
+.cell{border-radius:26px; overflow:hidden; position:relative;
+      width:100%; height:100%}
+.rest{background:#000000}
+
+.tile{border:none; padding:0; margin:0; cursor:pointer; font-family:var(--font);
+      box-shadow:0 4px 16px rgba(23,39,46,.14);
+      display:flex; align-items:center; justify-content:center}
+.tile.type-outfit, .tile.type-clothing, .tile.type-word{border:3px solid var(--line)}
+
+/* Labels: word-boundary wrapping ONLY. Never break-word, never hyphenate,
+   never clip — board-render.js guarantees fit by sizing font + label area. */
+.tile-label{font-weight:800; line-height:1.05; text-align:center;
+            white-space:normal; word-break:normal; overflow-wrap:normal;
+            hyphens:none; min-width:0}
+
+/* photo tiles: photo fills the top, solid full-width label plate below
+   (paper bg / ink text — guaranteed contrast, TD Snap look).
+   object-fit:CONTAIN — the WHOLE garment must fit in frame (dad 7/24: cover
+   was cropping waistbands/zooming into a blob). White letterbox = the tile's
+   own white bg, so it reads as a clean product shot. */
+.tile.photo{flex-direction:column; padding:0; align-items:stretch; background:#fff}
+.photo-img{flex:1 1 auto; min-height:0; width:100%; object-fit:contain;
+           object-position:center; display:block; padding:6px}
+.tile-label.plate{flex:0 0 auto; width:100%; background:var(--paper); color:var(--ink);
+                  padding:8px 10px; display:flex; align-items:center; justify-content:center;
+                  border-top:2px solid var(--line)}
+
+/* icon tiles: image + label, beside (short label, roomy tile) or stacked */
+.tile.icon{gap:12px; padding:14px 18px}
+.tile.icon.beside{flex-direction:row}
+.tile.icon.stacked{flex-direction:column}
+.tile.icon .tile-img.contain{object-fit:contain}
+.tile.icon.beside .tile-img{flex:0 0 38%; width:38%; height:74%}
+.tile.icon.beside .tile-label{flex:1 1 auto; text-align:left}
+.tile.icon.stacked .tile-img{flex:1 1 auto; min-height:0; width:70%; align-self:center}
+.tile.icon.stacked .tile-label{flex:0 0 auto; max-width:100%}
+/* dad-only freshness stamp (weather tile): deliberately tiny — a debug read
+   for dad, NOT a choice for Ellie, so it sits below the 74px contract floor */
+.tile-foot{position:absolute; left:0; right:0; bottom:5px; text-align:center;
+           font-size:16px; font-weight:600; opacity:.55; pointer-events:none}
+
+/* ---- partner warn banner (T2.2) — touch only, NOT .dwell, styled like Pencil's
+   #ttsWarn. Hidden until board.js finds TTS fell back/off. ---- */
+#ttsWarn{display:none; position:fixed; top:0; left:50%; transform:translateX(-50%);
+         background:#B23A48; color:#fff; font-size:22px; padding:8px 22px;
+         border-radius:0 0 12px 12px; z-index:70; font-family:var(--font)}
+#ttsWarn.show{display:block}
+
+/* ---- offline banner (T3.3) — same partner-strip treatment, warm amber so it
+   reads "degraded" not "broken"; sits below ttsWarn if both ever show. ---- */
+#netWarn{display:none; position:fixed; top:48px; left:50%; transform:translateX(-50%);
+         background:#8A5A18; color:#fff; font-size:22px; padding:8px 22px;
+         border-radius:0 0 12px 12px; z-index:70; font-family:var(--font)}
+#netWarn.show{display:block}
+
+/* ---- boot splash (T3.3) — nothing-to-show case; static, zero dwell targets */
+.splash{height:100%; display:flex; align-items:center; justify-content:center;
+        font-family:var(--font); font-size:56px; font-weight:700; color:var(--ink);
+        text-align:center; padding:0 6vw}
+
+/* ---- dwell onset delay (T2.1) — layered on dwell.js's existing .dwell-fill.
+   dwell.js drives the fill's HEIGHT every frame (its clock is untouched); here we
+   gate only OPACITY so the first ~200ms of a hold shows nothing — a passing glance
+   never flashes fill, and visible feedback fades in at ~200ms. dwell.js adds
+   .dwell-active BEFORE it inserts the fill, so a transition can't fire (no initial
+   render transitions) — we use an ANIMATION, which DOES run on first paint. The
+   fill's HEIGHT still tracks true progress throughout; only its opacity is gated.
+   Selectors are .tile/.barbtn-scoped to outrank dwell.js's injected .dwell-fill
+   rules (equal specificity, appended last). NO dwell.js edit. */
+@keyframes dwellOnset{ 0%{opacity:0} 58%{opacity:0} 100%{opacity:.28} }
+.tile.dwell-active .dwell-fill, .barbtn.dwell-active .dwell-fill,
+.bardoor.dwell-active .dwell-fill{
+  opacity:.28; animation:dwellOnset 340ms linear both}
+.tile.dwell-paused .dwell-fill, .barbtn.dwell-paused .dwell-fill,
+.bardoor.dwell-paused .dwell-fill{
+  animation:none; opacity:.14}
+@media (prefers-reduced-motion: reduce){
+  .tile.dwell-active .dwell-fill, .barbtn.dwell-active .dwell-fill,
+  .bardoor.dwell-active .dwell-fill{animation:none}
+}
