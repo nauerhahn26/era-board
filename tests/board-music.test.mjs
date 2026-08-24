@@ -62,7 +62,10 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(await page.locator(".tile.type-stop").count(), 0, "no Stop on the grid");
     assert.equal(await page.locator(".tile.type-exit").count(), 0, "no All done tile");
     assert.equal(await page.locator(".cell.rest").count(), 2, "center rests only");
-    assert.equal(await page.locator(".tile.type-more").count(), 1, "More door present");
+    const moreTile = page.locator('.tile.type-control:has-text("More")');
+    assert.equal(await moreTile.count(), 1, "More door present (outfit-style control tile)");
+    assert.ok((await moreTile.locator("img.tile-img").getAttribute("src")).includes("/symbol/more"),
+      "More wears the outfit board's more image");
 
     // ---- pick a song: song page opens AND the clip starts ----
     await page.evaluate(() => { window.__speechLog.length = 0; });
@@ -116,6 +119,10 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     await page.waitForSelector(".tile.type-song.full-on .full-badge", { state: "visible" });
     assert.equal(await page.locator(".tile.type-song .full-badge").textContent(), "Full song ✓",
       "hero acknowledges full mode under the image");
+    assert.ok(parseInt(await page.locator(".tile.type-song .full-badge")
+      .evaluate((el) => getComputedStyle(el).fontSize)) >= 60, "badge at reading size (dad r4)");
+    assert.ok(parseInt(await page.locator(".tile.type-song .tile-label.plate")
+      .evaluate((el) => el.dataset.fontPx)) >= 74, "hero title at reading size (dad r4)");
     assert.ok(await page.locator(".tile.type-full.active").count() === 1,
       "the Full song tile goes active too");
     await page.waitForTimeout(400);
@@ -148,7 +155,7 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "stop" });
 
     // ---- grid page 2: 3 remaining songs, arrow-back door ----
-    await page.locator(".tile.type-more").click();
+    await page.locator('.tile.type-control:has-text("More")').click();
     await page.waitForFunction(() => window.Board.session.currentId === "songs-2");
     assert.equal(await page.locator(".tile.type-song").count(), 3, "ranks 10-12 on page 2");
     assert.equal(await page.locator(".tile.type-back .tile-glyph").textContent(), "←");

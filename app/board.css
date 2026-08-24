@@ -149,3 +149,6 @@ body{background:var(--paper); color:var(--ink);
 .tile.type-full.active{background:#2E9E4B !important; color:#fff}
 /* glyph tiles may carry a word under the arrow */
 .tile.glyph{flex-direction:column; gap:4px}
+
+/* song-page hero (dad r4): title and the full-song strip at reading size */
+.tile.photo.hero .full-badge{font-size:64px; padding:14px 0}

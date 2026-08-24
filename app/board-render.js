@@ -207,6 +207,10 @@ function makeTile(btn, w, h, dwellMs) {
     // photo-first (dad 7/24): the outfit photo IS the message — it keeps ~4/5
     // of the tile and never yields to the label. The plate is a FIXED small
     // strip; the font fits inside it (word integrity kept, small by design).
+    // EXCEPT the song-page HERO (spanning tile, dad 8/24 r4): its plate is
+    // huge, so the title fits at reading size (74 floor, up to the cap).
+    const isHero = (btn.row_span | 0) > 1 || (btn.col_span | 0) > 1;
+    if (isHero) el.classList.add("hero");
     el.classList.add("photo");
     const img = document.createElement("img");
     img.className = "photo-img";
@@ -228,7 +232,11 @@ function makeTile(btn, w, h, dwellMs) {
       el.appendChild(badge);
     }
     el.appendChild(plate);
-    const fit = () => applyPhotoFit(plate);
+    // NB: the plate's height is FIXED inline, so scrollHeight can never be
+    // below plateH — the fit budget must be plateH itself, not less.
+    const fit = isHero
+      ? () => applyFit(plate, [plateH], CONFIG.FONT_CAP)  // title at reading size
+      : () => applyPhotoFit(plate);
     return { el, fit };
   }
 
