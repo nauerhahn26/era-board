@@ -57,11 +57,11 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
   try {
     const { ctx, page, musicEvents } = await makePage(browser);
 
-    // ---- grid page 1: 7 song doors, More, NO Stop / NO All done, 4 rests ----
-    assert.equal(await page.locator(".tile.type-song").count(), 7, "7 song tiles");
+    // ---- grid page 1 (v3): 9 song doors incl. corners, More, center rests ----
+    assert.equal(await page.locator(".tile.type-song").count(), 9, "9 song tiles");
     assert.equal(await page.locator(".tile.type-stop").count(), 0, "no Stop on the grid");
     assert.equal(await page.locator(".tile.type-exit").count(), 0, "no All done tile");
-    assert.equal(await page.locator(".cell.rest").count(), 4, "freed corners rest black");
+    assert.equal(await page.locator(".cell.rest").count(), 2, "center rests only");
     assert.equal(await page.locator(".tile.type-more").count(), 1, "More door present");
 
     // ---- pick a song: song page opens AND the clip starts ----
@@ -78,8 +78,14 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     const backTile = page.locator(".tile.type-back");
     assert.equal(await backTile.evaluate((el) => el.querySelector(".tile-glyph").textContent), "←",
       "back is the big left arrow");
+    assert.equal(await backTile.locator(".tile-label").textContent(), "Back",
+      "arrow AND the word (dad r3)");
     assert.equal(await page.locator(".tile.type-stop").count(), 1, "Stop lives on the song page");
+    assert.ok((await page.locator(".tile.type-stop img.tile-img").getAttribute("src")).includes("/symbol/8289"),
+      "Stop wears the stop-sign pictogram");
     assert.equal(await page.locator(".tile.type-full").count(), 1, "Full song present");
+    assert.ok((await page.locator(".tile.type-full img.tile-img").getAttribute("src")).includes("/symbol/music"),
+      "Full song wears the music pictogram");
     assert.equal(await page.locator(".cell.rest").count(), 3, "black rest column for her eyes");
     const log1 = await page.evaluate(() => window.__speechLog.slice());
     assert.ok(log1.some((e) => e.call === "stop"), "barge-in: Speech.stop fired");
@@ -99,11 +105,19 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     await waitPlaying(page, "test-song-1");
     assert.ok(await page.locator(".tile.type-song.playing").count() === 1, "hero wears the ring");
 
-    // ---- Full song mid-clip: un-caps IN PLACE (no restart), plays to the end ----
+    // ---- Full song mid-clip: un-caps IN PLACE (no restart), plays to the end,
+    //      and the UI acknowledges the mode (dad r3) ----
     await page.waitForFunction(() => window.Music._audio.currentTime > 0.4);
+    assert.equal(await page.locator(".tile.type-song .full-badge").isVisible(), false,
+      "no badge during a plain clip");
     const tBefore = (await audioState(page)).t;
     await page.locator(".tile.type-full").click();
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "full" });
+    await page.waitForSelector(".tile.type-song.full-on .full-badge", { state: "visible" });
+    assert.equal(await page.locator(".tile.type-song .full-badge").textContent(), "Full song ✓",
+      "hero acknowledges full mode under the image");
+    assert.ok(await page.locator(".tile.type-full.active").count() === 1,
+      "the Full song tile goes active too");
     await page.waitForTimeout(400);
     const s2 = await audioState(page);
     assert.equal(s2.paused, false, "still playing after Full song");
@@ -112,6 +126,8 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     const s3 = await audioState(page);
     assert.ok(s3.t > 2.5 || s3.paused, "played past the clip cap to the real end");
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
+    assert.equal(await page.locator(".tile.type-song.full-on").count(), 0,
+      "badge clears when the song ends");
 
     // ---- Stop on the page: silence, stay on the page ----
     await page.locator(".tile.type-song").click();
@@ -131,9 +147,10 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
       "leaving the song page stops playback (why the grid needs no Stop)");
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "stop" });
 
-    // ---- grid page 2 back door is the arrow too ----
+    // ---- grid page 2: 3 remaining songs, arrow-back door ----
     await page.locator(".tile.type-more").click();
     await page.waitForFunction(() => window.Board.session.currentId === "songs-2");
+    assert.equal(await page.locator(".tile.type-song").count(), 3, "ranks 10-12 on page 2");
     assert.equal(await page.locator(".tile.type-back .tile-glyph").textContent(), "←");
     await page.locator(".tile.type-back").click();
     await page.waitForFunction(() => window.Board.session.currentId === "songs");

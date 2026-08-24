@@ -198,7 +198,10 @@ function makeTile(btn, w, h, dwellMs) {
   el.style.color = LIGHT_BG.has(type) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
 
   const src = btn.image ? imageSrc(btn.image) : (btn.symbol ? symbolSrc(btn.symbol) : null);
-  const startPx = Math.round(h * 0.3);
+  // songs-board control tiles maximize their text (dad's round 3): start the
+  // fitter at the cap and let it walk down, instead of the h*0.3 heuristic.
+  const startPx = (type === "stop" || type === "full")
+    ? CONFIG.FONT_CAP : Math.round(h * 0.3);
 
   if (isPhoto(btn)) {
     // photo-first (dad 7/24): the outfit photo IS the message — it keeps ~4/5
@@ -215,14 +218,23 @@ function makeTile(btn, w, h, dwellMs) {
                             Math.round(h * CONFIG.PHOTO_LABEL_SHARE));
     plate.style.height = plateH + "px";
     el.appendChild(img);
+    if (type === "song") {
+      // full-mode acknowledgment (dad 8/24 round 3): a strip under the image
+      // that lights up when the whole song is authorized. Hidden until .full-on.
+      const badge = document.createElement("span");
+      badge.className = "full-badge";
+      badge.textContent = "Full song ✓";
+      badge.setAttribute("aria-hidden", "true");
+      el.appendChild(badge);
+    }
     el.appendChild(plate);
     const fit = () => applyPhotoFit(plate);
     return { el, fit };
   }
 
-  // glyph tile (dad 8/24): a single BIG glyph is the whole message — the songs
-  // board's back arrow (the ARASAAC "back" symbol is a person's back; weird).
-  // Spoken name still rides data-dwell-say; aria-label from `say`.
+  // glyph tile (dad 8/24): a BIG glyph carries the message — the songs board's
+  // back arrow (the ARASAAC "back" symbol is a person's back; weird) — with the
+  // word underneath (dad's round 3), text maximized to the tile.
   if (btn.glyph) {
     el.classList.add("glyph");
     el.setAttribute("aria-label", btn.say || btn.label || "");
@@ -231,7 +243,17 @@ function makeTile(btn, w, h, dwellMs) {
     g.textContent = btn.glyph;
     g.setAttribute("aria-hidden", "true");
     el.appendChild(g);
-    const fit = () => { g.style.fontSize = Math.round(h * 0.52) + "px"; };
+    let lab = null;
+    if (btn.label) {
+      lab = document.createElement("span");
+      lab.className = "tile-label";
+      lab.textContent = btn.label;
+      el.appendChild(lab);
+    }
+    const fit = () => {
+      g.style.fontSize = Math.round(h * (lab ? 0.4 : 0.52)) + "px";
+      if (lab) applyFit(lab, [h * 0.4], CONFIG.FONT_CAP);
+    };
     return { el, fit };
   }
 
@@ -411,7 +433,14 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // .playing so she can see what is on. Survives page nav via re-apply in render.
   let songEls = new Map(); // song_id -> tile element (rebuilt every render)
   function applyPlaying(id) {
-    for (const [sid, el] of songEls) el.classList.toggle("playing", sid === id);
+    const full = !!(music && music.isFull && music.isFull());
+    for (const [sid, el] of songEls) {
+      el.classList.toggle("playing", sid === id);
+      el.classList.toggle("full-on", sid === id && full);   // "Full song ✓" strip
+    }
+    // the Full song tile itself acknowledges the mode too
+    for (const el of area.querySelectorAll(".tile.type-full"))
+      el.classList.toggle("active", !!id && full);
   }
   if (music) music.onState = applyPlaying;
 

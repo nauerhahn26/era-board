@@ -133,7 +133,9 @@ export function createMusicPlayer({ onState } = {}) {
   // place (no restart — dad 8/24); otherwise start it from the top, uncapped.
   function full(btn) {
     if (playing === btn.song_id) {
+      if (clipLimitMs == null) return;   // already in full mode: no-op
       clipLimitMs = null;
+      state(playing);                    // re-notify: UI shows "Full song ✓"
       postEvent(btn.song_id, "full");
       return;
     }
@@ -167,6 +169,7 @@ export function createMusicPlayer({ onState } = {}) {
     play, stop, full, prefetch,
     onState: onState || null,   // renderer assigns; moves the .playing marker
     playingId: () => playing,
+    isFull: () => playing != null && clipLimitMs == null,
     cached: () => cachedCount,
     _audio: audio,   // test hook: playback state assertions
   };

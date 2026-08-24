@@ -139,3 +139,13 @@ body{background:var(--paper); color:var(--ink);
 /* glyph tiles (songs-board back arrow): one big centered glyph */
 .tile.glyph{align-items:center; justify-content:center}
 .tile-glyph{font-weight:800; line-height:1}
+
+/* full-mode acknowledgment (dad 8/24 r3): strip under the hero image, hidden
+   until the whole song is authorized; the Full song tile goes green too. */
+.full-badge{display:none; flex:0 0 auto; width:100%; text-align:center;
+  background:#2E9E4B; color:#fff; font-weight:800; font-size:34px;
+  padding:8px 0; line-height:1.2}
+.tile.photo.full-on .full-badge{display:block}
+.tile.type-full.active{background:#2E9E4B !important; color:#fff}
+/* glyph tiles may carry a word under the arrow */
+.tile.glyph{flex-direction:column; gap:4px}
