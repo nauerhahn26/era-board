@@ -52,13 +52,14 @@ export const CONFIG = {
   color: { rest: "#000000", yes: "#2E9E4B", outfit: "#FFFFFF", clothing: "#FFFFFF",
            control: "#0F7C8A", category: "#6B7B82", back: "#6B7B82", more: "#6B7B82",
            exit: "#6B7B82",
-           word: "#FFFFFF" },
+           word: "#FFFFFF",
+           song: "#FFFFFF", stop: "#0F7C8A" },   // Songs Board (spec 8/24)
   INK_DARK: "#17272E",
   INK_LIGHT: "#FFFFFF",
 };
 
 // tiles whose ink should be dark (light backgrounds)
-const LIGHT_BG = new Set(["outfit", "clothing", "word"]);
+const LIGHT_BG = new Set(["outfit", "clothing", "word", "song"]);
 
 // structural nav types (doors even if a recipe omits an explicit load)
 const NAV_TYPES = new Set(["category", "back", "more"]);
@@ -115,9 +116,12 @@ function imageSrc(path) {
 }
 function symbolSrc(name) { return "/symbol/" + encodeURIComponent(name); }
 
-// A "photo" fills its cell (her real clothes); an "icon" (symbol or gen-asset
-// PNG) is contained with a label beside/under it.
-function isPhoto(btn) { return typeof btn.image === "string" && btn.image.startsWith("wardrobe/"); }
+// A "photo" fills its cell (her real clothes; a song's cover art); an "icon"
+// (symbol or gen-asset PNG) is contained with a label beside/under it.
+function isPhoto(btn) {
+  return typeof btn.image === "string" &&
+         (btn.image.startsWith("wardrobe/") || btn.image.startsWith("music/"));
+}
 
 // ---- label fitting (word integrity) ----------------------------------------
 
@@ -283,7 +287,7 @@ function layoutCells(board) {
 
 // ---- mount / render --------------------------------------------------------
 
-export function mountBoard({ mount, session, speech, dwellMs }) {
+export function mountBoard({ mount, session, speech, dwellMs, music }) {
   const sp = speech || { say() {}, stop() {} };
   // runtime content-tile hold from /settings (board.js clamps 600-3000).
   const contentDwellMs = (typeof dwellMs === "number" && isFinite(dwellMs))
@@ -304,7 +308,7 @@ export function mountBoard({ mount, session, speech, dwellMs }) {
   doorBtn.dataset.dwellMs = String(CONFIG.DWELL_EXIT);
   doorBtn.dataset.dwellSay = "door";
   doorBtn.setAttribute("aria-label", "door");
-  doorBtn.addEventListener("click", () => { sp.stop && sp.stop(); exitToTDSnap(); });
+  doorBtn.addEventListener("click", () => { sp.stop && sp.stop(); if (music) music.stop(); exitToTDSnap(); });
   const chipsEl = document.createElement("div");
   chipsEl.className = "chips";
   const ctl = document.createElement("div");
@@ -370,15 +374,28 @@ export function mountBoard({ mount, session, speech, dwellMs }) {
   const outfitEvents = createOutfitEvents();
   outfitEvents.flush(); // drain anything queued while the server was away
 
+  // --- playing-song marker (Songs Board): the active song's tile carries
+  // .playing so she can see what is on. Survives page nav via re-apply in render.
+  let songEls = new Map(); // song_id -> tile element (rebuilt every render)
+  function applyPlaying(id) {
+    for (const [sid, el] of songEls) el.classList.toggle("playing", sid === id);
+  }
+  if (music) music.onState = applyPlaying;
+
   // --- board render ---
   function onTile(btn) {
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
     const type = (btn.type || "").toLowerCase();
+    // Songs Board (spec 8/24): a song pick replaces whatever is playing (her
+    // action always wins); Stop is silent; page nav does NOT stop the music —
+    // she can keep listening while she browses. One pick = one song, no queue.
+    if (music && type === "song") { music.play(btn); return; }
+    if (music && type === "stop") { music.stop(); return; }
     if (btn.combo && (type === "outfit" || type === "yes")) {
       outfitEvents.send(type === "yes" ? "yes" : "select", btn.combo);
     }
-    if (type === EXIT_TYPE) { exitToTDSnap(); return; }
+    if (type === EXIT_TYPE) { if (music) music.stop(); exitToTDSnap(); return; }
     const r = session.activate(btn);
     // nav doors are SILENT by default; a door may voice itself as it navigates
     // (r.speak set) — the today-page outfit pick speaks then opens confirm.
@@ -407,15 +424,18 @@ export function mountBoard({ mount, session, speech, dwellMs }) {
     area.style.padding = CONFIG.V_PAD + "px " + CONFIG.SIDE_PAD + "px";
 
     const fits = [];
+    songEls = new Map();
     for (const btn of slots) {
       if (!btn) { area.appendChild(restCell()); continue; }
       const { el, fit } = makeTile(btn, w, h, contentDwellMs);
       el.addEventListener("click", () => onTile(btn));
+      if ((btn.type || "").toLowerCase() === "song" && btn.song_id) songEls.set(btn.song_id, el);
       area.appendChild(el);
       fits.push(fit);
     }
     // second pass: labels are only measurable once they are in the document.
     for (const fit of fits) fit();
+    if (music) applyPlaying(music.playingId()); // marker survives page nav
   }
 
   syncControls();

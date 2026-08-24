@@ -4,6 +4,7 @@
 // click handler covers both input paths.
 import { createSession } from "./board-model.js";
 import { mountBoard } from "./board-render.js";
+import { createMusicPlayer } from "./music-player.js";
 
 const baseSpeech = window.Speech || {
   say() {}, stop() {}, init() { return Promise.resolve(); },
@@ -36,9 +37,20 @@ function clampDwell(n) {
 // in localStorage, an auto-retry splash when there is nothing to show, and an
 // ETag HEAD poll that reloads ONLY while she is idle — never yank the board
 // mid-use. Timing keys overridable by tests via window.__boardTest.
-const RECIPE_URL = "/recipes/today.json";
-const LS_RECIPE = "board:lastRecipe";
-const LS_ETAG = "board:lastRecipeEtag";
+// ?recipe=<name> selects the board family (default the outfit board; the Songs
+// Board kiosk opens /board/?recipe=songs). The last-good stash is keyed per
+// recipe so songs and outfits never poison each other's cache; `today` keeps
+// the legacy unsuffixed keys so existing devices don't drop their stash.
+const RECIPE_NAME = (() => {
+  try {
+    const n = new URLSearchParams(location.search).get("recipe") || "today";
+    return /^[a-z0-9-]{1,32}$/.test(n) ? n : "today";
+  } catch { return "today"; }
+})();
+const RECIPE_URL = "/recipes/" + RECIPE_NAME + ".json";
+const KEY_SUFFIX = RECIPE_NAME === "today" ? "" : ":" + RECIPE_NAME;
+const LS_RECIPE = "board:lastRecipe" + KEY_SUFFIX;
+const LS_ETAG = "board:lastRecipeEtag" + KEY_SUFFIX;
 const T = Object.assign(
   { pollMs: 5 * 60 * 1000, retryMs: 15 * 1000, idleMs: 60 * 1000 },
   window.__boardTest || {},
@@ -151,10 +163,19 @@ async function boot() {
   }
   const session = createSession(r.json);
   app.innerHTML = ""; // clear splash if it was up
-  const api = mountBoard({ mount: app, session, speech, dwellMs });
+  // Songs Board (spec 8/24): the player exists only when the recipe carries
+  // song tiles — the outfit board never pays for it.
+  const allButtons = (r.json.boards || []).flatMap((b) => b.buttons || []);
+  const music = allButtons.some((b) => b && b.type === "song")
+    ? createMusicPlayer({}) : null;
+  const api = mountBoard({ mount: app, session, speech, dwellMs, music });
 
   // window hook: renderer API for kiosk control + pixel-audit state injection.
   window.Board = api;
+  if (music) {
+    window.Music = music; // test hook + partner console access
+    music.prefetch(allButtons); // background: after this, songs survive offline
+  }
   window.dispatchEvent(new CustomEvent("board:ready"));
   startWatcher({ etag: r.etag, offline: r.offline });
 }

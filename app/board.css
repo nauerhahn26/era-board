@@ -127,3 +127,11 @@ body{background:var(--paper); color:var(--ink);
   .tile.dwell-active .dwell-fill, .barbtn.dwell-active .dwell-fill,
   .bardoor.dwell-active .dwell-fill{animation:none}
 }
+
+/* ---- Songs Board (spec 8/24): the active song's tile wears a thick green
+   ring + a corner note badge so "what is playing" reads at a glance. Static
+   by design (no pulse — reduced-motion safe, and motion near tiles fights
+   the dwell fill). */
+.tile.playing{outline:8px solid #2E9E4B; outline-offset:-8px}
+.tile.playing::after{content:"♪"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#2E9E4B; pointer-events:none}
