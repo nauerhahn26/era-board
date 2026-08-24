@@ -93,12 +93,33 @@ export function createMusicPlayer({ onState } = {}) {
     if (was) postEvent(was, "end");
   });
 
-  async function play(btn) {
-    // btn: { song_id, audio: "music/<file>", v }
+  // 40-second default clip (dad 8/24: scratch the itch at school, not the
+  // whole day). clipMs comes from the recipe (clip_ms); "Full song" clears it
+  // MID-PLAY without restarting — the running playback is simply un-capped.
+  let clipLimitMs = null;
+  audio.addEventListener("timeupdate", () => {
+    if (clipLimitMs != null && audio.currentTime * 1000 >= clipLimitMs) {
+      clipLimitMs = null;
+      const was = playing;
+      try { audio.pause(); } catch {}
+      state(null);                       // clip over: silence, stay on the page
+      if (was) postEvent(was, "end");
+    }
+  });
+
+  function clipOf(btn) {
+    const t = (window.__musicTest && window.__musicTest.clipMs);
+    if (typeof t === "number") return t;                 // test override
+    return (typeof btn.clip_ms === "number" && btn.clip_ms > 0) ? btn.clip_ms : null;
+  }
+
+  async function play(btn, { full = false } = {}) {
+    // btn: { song_id, audio: "music/<file>", v, clip_ms }
     const g = ++gen;
     try { audio.pause(); } catch {}
+    clipLimitMs = full ? null : clipOf(btn);
     state(btn.song_id);
-    postEvent(btn.song_id, "play");
+    postEvent(btn.song_id, full ? "full" : "play");
     const blob = await getBlob(btn.audio, btn.v);
     if (g !== gen) return;             // she picked something newer meanwhile
     releaseUrl();
@@ -108,8 +129,20 @@ export function createMusicPlayer({ onState } = {}) {
     audio.play().catch(() => { if (g === gen) state(null); });
   }
 
+  // "Full song": if this song's clip is ALREADY playing, authorize the rest in
+  // place (no restart — dad 8/24); otherwise start it from the top, uncapped.
+  function full(btn) {
+    if (playing === btn.song_id) {
+      clipLimitMs = null;
+      postEvent(btn.song_id, "full");
+      return;
+    }
+    play(btn, { full: true });
+  }
+
   function stop() {
     gen++;
+    clipLimitMs = null;
     const was = playing;
     try { audio.pause(); } catch {}
     state(null);
@@ -131,7 +164,7 @@ export function createMusicPlayer({ onState } = {}) {
   }
 
   const api = {
-    play, stop, prefetch,
+    play, stop, full, prefetch,
     onState: onState || null,   // renderer assigns; moves the .playing marker
     playingId: () => playing,
     cached: () => cachedCount,

@@ -220,6 +220,21 @@ function makeTile(btn, w, h, dwellMs) {
     return { el, fit };
   }
 
+  // glyph tile (dad 8/24): a single BIG glyph is the whole message — the songs
+  // board's back arrow (the ARASAAC "back" symbol is a person's back; weird).
+  // Spoken name still rides data-dwell-say; aria-label from `say`.
+  if (btn.glyph) {
+    el.classList.add("glyph");
+    el.setAttribute("aria-label", btn.say || btn.label || "");
+    const g = document.createElement("span");
+    g.className = "tile-glyph";
+    g.textContent = btn.glyph;
+    g.setAttribute("aria-hidden", "true");
+    el.appendChild(g);
+    const fit = () => { g.style.fontSize = Math.round(h * 0.52) + "px"; };
+    return { el, fit };
+  }
+
   // icon tile: contained image + label. Short labels sit BESIDE the image
   // (image left ~40%, label right) on roomy tiles; otherwise stacked.
   const short = (btn.label || "").length <= CONFIG.BESIDE_MAX_CHARS &&
@@ -264,6 +279,10 @@ function makeTile(btn, w, h, dwellMs) {
 // Place buttons into a rows*cols grid. Honors explicit 1-indexed row/col pins;
 // flows the rest into the first free cells; fills every remaining cell with a
 // black rest box. Declared rows always render, so the bottom row is never empty.
+// A pinned button may span cells (row_span/col_span >= 1, songs-board hero):
+// the anchor index holds the button; every other covered cell holds TAKEN so
+// flow and rest-fill skip it. Render places cells on the explicit grid.
+const TAKEN = Symbol("span-covered");
 function layoutCells(board) {
   const cols = Math.max(1, board.columns || 1);
   const declared = Math.max(1, board.rows || 1);
@@ -275,8 +294,22 @@ function layoutCells(board) {
   const flow = [];
   for (const b of buttons) {
     if (Number.isInteger(b.row) && Number.isInteger(b.col)) {
+      const rs = Math.max(1, b.row_span | 0 || 1), cs = Math.max(1, b.col_span | 0 || 1);
       const idx = (b.row - 1) * cols + (b.col - 1);
-      if (idx >= 0 && idx < total && slots[idx] == null) { slots[idx] = b; continue; }
+      const fits = idx >= 0 && idx < total && b.row - 1 + rs <= rows && b.col - 1 + cs <= cols;
+      if (fits) {
+        let free = true;
+        for (let r = 0; r < rs && free; r++)
+          for (let c = 0; c < cs && free; c++)
+            if (slots[idx + r * cols + c] != null) free = false;
+        if (free) {
+          slots[idx] = b;
+          for (let r = 0; r < rs; r++)
+            for (let c = 0; c < cs; c++)
+              if (r || c) slots[idx + r * cols + c] = TAKEN;
+          continue;
+        }
+      }
     }
     flow.push(b);
   }
@@ -387,10 +420,18 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
     const type = (btn.type || "").toLowerCase();
-    // Songs Board (spec 8/24): a song pick replaces whatever is playing (her
-    // action always wins); Stop is silent; page nav does NOT stop the music —
-    // she can keep listening while she browses. One pick = one song, no queue.
-    if (music && type === "song") { music.play(btn); return; }
+    // Songs Board v2 (dad's 8/24 feedback): playback lives ONLY on a song's own
+    // page. A grid song door opens that page AND starts the default clip; the
+    // hero tile on the page replays the clip; Full song un-caps it; Stop is
+    // silent; ANY nav that leaves the playing song's page stops the music —
+    // which is why the grid has no Stop tile. One pick = one song, no queue.
+    if (music && type === "song") {
+      if (btn.load != null) session.navigate(btn.load);   // silent door, never speaks
+      music.play(btn);                                    // default clip (clip_ms)
+      if (btn.load != null) render();
+      return;
+    }
+    if (music && type === "full") { music.full(btn); return; }
     if (music && type === "stop") { music.stop(); return; }
     if (btn.combo && (type === "outfit" || type === "yes")) {
       outfitEvents.send(type === "yes" ? "yes" : "select", btn.combo);
@@ -399,7 +440,12 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     const r = session.activate(btn);
     // nav doors are SILENT by default; a door may voice itself as it navigates
     // (r.speak set) — the today-page outfit pick speaks then opens confirm.
-    if (r.navigated != null) { if (r.speak != null) sp.say && sp.say(r.speak); render(); return; }
+    if (r.navigated != null) {
+      // leaving the playing song's page = stop (the only playback context)
+      if (music && music.playingId() && session.currentId !== "song-" + music.playingId()) music.stop();
+      if (r.speak != null) sp.say && sp.say(r.speak);
+      render(); return;
+    }
     // append -> echo the single word (UX contract: "voice confirms everything").
     if (r.append) { appendChip(r.append); sp.say && sp.say(btn.say != null ? btn.say : btn.label); return; }
     if (r.speak != null) { sp.say && sp.say(r.speak); }
@@ -425,12 +471,22 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
 
     const fits = [];
     songEls = new Map();
-    for (const btn of slots) {
-      if (!btn) { area.appendChild(restCell()); continue; }
-      const { el, fit } = makeTile(btn, w, h, contentDwellMs);
+    for (let i = 0; i < slots.length; i++) {
+      const btn = slots[i];
+      if (btn === TAKEN) continue;   // covered by a spanning neighbor
+      const r = Math.floor(i / cols) + 1, c = (i % cols) + 1;
+      const place = (el, rs, cs) => {
+        el.style.gridRow = r + (rs > 1 ? " / span " + rs : "");
+        el.style.gridColumn = c + (cs > 1 ? " / span " + cs : "");
+        area.appendChild(el);
+      };
+      if (!btn) { place(restCell(), 1, 1); continue; }
+      const rs = Math.max(1, btn.row_span | 0 || 1), cs = Math.max(1, btn.col_span | 0 || 1);
+      // a spanning tile's real box includes the gaps it swallows
+      const { el, fit } = makeTile(btn, w * cs + gap * (cs - 1), h * rs + gap * (rs - 1), contentDwellMs);
       el.addEventListener("click", () => onTile(btn));
       if ((btn.type || "").toLowerCase() === "song" && btn.song_id) songEls.set(btn.song_id, el);
-      area.appendChild(el);
+      place(el, rs, cs);
       fits.push(fit);
     }
     // second pass: labels are only measurable once they are in the document.

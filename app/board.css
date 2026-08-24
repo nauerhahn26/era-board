@@ -135,3 +135,7 @@ body{background:var(--paper); color:var(--ink);
 .tile.playing{outline:8px solid #2E9E4B; outline-offset:-8px}
 .tile.playing::after{content:"♪"; position:absolute; top:6px; right:14px;
   font-size:44px; font-weight:800; color:#2E9E4B; pointer-events:none}
+
+/* glyph tiles (songs-board back arrow): one big centered glyph */
+.tile.glyph{align-items:center; justify-content:center}
+.tile-glyph{font-weight:800; line-height:1}
