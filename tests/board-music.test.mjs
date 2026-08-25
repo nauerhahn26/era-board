@@ -103,6 +103,17 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(await onBoard(page), "song-test-song-1", "stays on the song page");
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
 
+    // ---- Full song AFTER clip expiry: continues from the mark (dad r6) ----
+    const tClip = (await audioState(page)).t;
+    await page.locator(".tile.type-full").click();
+    await waitPlaying(page, "test-song-1");
+    const sF = await audioState(page);
+    assert.ok(sF.t >= tClip - 0.05, `continued from the clip mark (${tClip.toFixed(2)} -> ${sF.t.toFixed(2)})`);
+    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "full" });
+    await waitSilent(page, 6000);   // plays the REST to the natural end
+    assert.ok((await audioState(page)).t > 2.5, "played the rest of the song");
+    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
+
     // ---- hero from silence (after a natural end): starts FRESH (dad r5) ----
     await page.locator(".tile.type-song").click();
     await waitPlaying(page, "test-song-1");
@@ -211,10 +222,12 @@ test("?vol= caps the player's loudness (classroom bat passes vol=20)", async () 
       body: JSON.stringify({ musicVolCap: 25 }),
     }));
     await p2.waitForFunction(() => window.Music._audio.volume === 0.25, null, { timeout: 8000 });
+    await p2.close();   // its live-follow poll writes the shared localStorage cache
     // offline resiliency: the last server cap is remembered; a dead /settings
     // must never mean full-volume music in a classroom
     const p3 = await ctx.newPage();
     await p3.route("**/settings", (r) => r.abort());
+    await p3.route("**/music-event", (r) => r.fulfill({ status: 204, body: "" }));
     await p3.addInitScript(() => { try { localStorage.setItem("music:volCap", "50"); } catch {} });
     await p3.goto(BASE, { waitUntil: "load" });
     await p3.waitForFunction(() => window.Music, null, { timeout: 8000 });

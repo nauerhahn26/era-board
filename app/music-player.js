@@ -128,11 +128,16 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   // Stop remembers where she was (dad 8/24 r5): the hero resumes from there.
   // A natural end clears it — after the song finishes, the hero starts fresh.
   let resume = null;   // { id, pos, full }
+  // Clip-expiry remembers separately (dad 8/24 r6): after the 40s clip runs
+  // out, FULL SONG continues from right there and plays the rest — only a
+  // fresh pick or a finished song forgets it. The hero still starts fresh.
+  let clipEnded = null;   // { id } — position lives in the paused audio element
 
   audio.addEventListener("ended", () => {
     // one pick = one song: at the end, silence. Nothing auto-plays.
     const was = playing;
     resume = null;
+    clipEnded = null;
     state(null);
     if (was) postEvent(was, "end");
   });
@@ -146,6 +151,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
       clipLimitMs = null;
       const was = playing;
       resume = null;                     // clip ran its course: hero starts fresh
+      clipEnded = was ? { id: was } : null;   // ...but Full song continues from here
       try { audio.pause(); } catch {}
       state(null);                       // clip over: silence, stay on the page
       if (was) postEvent(was, "end");
@@ -163,6 +169,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     const g = ++gen;
     try { audio.pause(); } catch {}
     resume = null;                       // a fresh pick forgets any paused spot
+    clipEnded = null;
     clipLimitMs = full ? null : clipOf(btn);
     state(btn.song_id);
     postEvent(btn.song_id, full ? "full" : "play");
@@ -185,11 +192,23 @@ export function createMusicPlayer({ onState, volCap } = {}) {
       postEvent(btn.song_id, "full");
       return;
     }
+    // clip already ran out (dad r6): continue from the 40s mark, uncapped —
+    // the paused element still holds the src and position
+    if (clipEnded && clipEnded.id === btn.song_id && audio.src && !audio.ended) {
+      clipEnded = null;
+      gen++;
+      clipLimitMs = null;
+      state(btn.song_id);
+      postEvent(btn.song_id, "full");
+      audio.play().catch(() => { state(null); });
+      return;
+    }
     play(btn, { full: true });
   }
 
   function stop() {
     gen++;
+    clipEnded = null;
     const was = playing;
     if (was && audio.currentTime > 0 && !audio.ended) {
       // remember the spot (and whether the whole song was authorized)
