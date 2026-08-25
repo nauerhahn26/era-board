@@ -63,23 +63,39 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   // (the school kiosk bat passes a floor). STRICTEST WINS. The server value is
   // remembered in localStorage so a dead network keeps the last cap, not full
   // volume. Speech is untouched — this caps the music element only.
-  {
-    let urlV = null, srvV = null;
-    try {
-      const v = parseInt(new URLSearchParams(location.search).get("vol"), 10);
-      if (Number.isFinite(v) && v >= 1 && v <= 100) urlV = v;
-    } catch {}
-    if (typeof volCap === "number" && volCap >= 1 && volCap <= 100) {
-      srvV = Math.round(volCap);
-      try { localStorage.setItem("music:volCap", String(srvV)); } catch {}
-    } else {
-      try {
-        const c = parseInt(localStorage.getItem("music:volCap"), 10);
-        if (Number.isFinite(c) && c >= 1 && c <= 100) srvV = c;   // offline: last known cap
-      } catch {}
-    }
+  let urlV = null;
+  try {
+    const v = parseInt(new URLSearchParams(location.search).get("vol"), 10);
+    if (Number.isFinite(v) && v >= 1 && v <= 100) urlV = v;
+  } catch {}
+  function applyCap(srvV) {
     audio.volume = Math.min(urlV ?? 100, srvV ?? 100) / 100;
   }
+  function setCap(v) {
+    if (typeof v !== "number" || !(v >= 1 && v <= 100)) return;
+    const srvV = Math.round(v);
+    try { localStorage.setItem("music:volCap", String(srvV)); } catch {}
+    applyCap(srvV);   // instant, even mid-song
+  }
+  if (typeof volCap === "number" && volCap >= 1 && volCap <= 100) {
+    setCap(volCap);
+  } else {
+    let srvV = null;
+    try {
+      const c = parseInt(localStorage.getItem("music:volCap"), 10);
+      if (Number.isFinite(c) && c >= 1 && c <= 100) srvV = c;   // offline: last known cap
+    } catch {}
+    applyCap(srvV);
+  }
+  // Live-follow the ERAgaze Settings knob (dad 8/24: he changed it while the
+  // board was open and nothing happened): re-read every 30s, apply mid-song.
+  const capPoll = setInterval(async () => {
+    try {
+      const s = await (await fetch("/settings", { cache: "no-store" })).json();
+      if (typeof s.musicVolCap === "number") setCap(s.musicVolCap);
+    } catch { /* offline: cached cap stands */ }
+  }, (window.__musicTest && window.__musicTest.capPollMs) || 30000);
+  if (capPoll.unref) capPoll.unref();
   let dbP = idbOpen();
   let gen = 0;             // render-generation guard (reader.js:156 pattern)
   let playing = null;      // song_id currently playing (null = silent)

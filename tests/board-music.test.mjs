@@ -201,9 +201,16 @@ test("?vol= caps the player's loudness (classroom bat passes vol=20)", async () 
     await page.waitForFunction(() => window.Music, null, { timeout: 8000 });
     assert.equal(await page.evaluate(() => window.Music._audio.volume), 0.2, "vol=20 -> 20% loudness");
     const p2 = await ctx.newPage();
+    await p2.addInitScript(() => { window.__musicTest = { capPollMs: 300 }; });
     await p2.goto(BASE, { waitUntil: "load" });
     await p2.waitForFunction(() => window.Music, null, { timeout: 8000 });
     assert.equal(await p2.evaluate(() => window.Music._audio.volume), 1, "no param -> full volume (home)");
+    // live-follow: the ERAgaze Settings knob reaches an OPEN board (no relaunch)
+    await p2.route("**/settings", (r) => r.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ musicVolCap: 25 }),
+    }));
+    await p2.waitForFunction(() => window.Music._audio.volume === 0.25, null, { timeout: 8000 });
     // offline resiliency: the last server cap is remembered; a dead /settings
     // must never mean full-volume music in a classroom
     const p3 = await ctx.newPage();
