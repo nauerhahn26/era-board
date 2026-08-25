@@ -190,6 +190,32 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
   } finally { await browser.close(); }
 });
 
+test("?vol= caps the player's loudness (classroom bat passes vol=20)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    const page = await ctx.newPage();
+    await page.goto(BASE + "&vol=20", { waitUntil: "load" });
+    await page.waitForFunction(() => window.Music, null, { timeout: 8000 });
+    assert.equal(await page.evaluate(() => window.Music._audio.volume), 0.2, "vol=20 -> 20% loudness");
+    const p2 = await ctx.newPage();
+    await p2.goto(BASE, { waitUntil: "load" });
+    await p2.waitForFunction(() => window.Music, null, { timeout: 8000 });
+    assert.equal(await p2.evaluate(() => window.Music._audio.volume), 1, "no param -> full volume (home)");
+    // offline resiliency: the last server cap is remembered; a dead /settings
+    // must never mean full-volume music in a classroom
+    const p3 = await ctx.newPage();
+    await p3.route("**/settings", (r) => r.abort());
+    await p3.addInitScript(() => { try { localStorage.setItem("music:volCap", "50"); } catch {} });
+    await p3.goto(BASE, { waitUntil: "load" });
+    await p3.waitForFunction(() => window.Music, null, { timeout: 8000 });
+    assert.equal(await p3.evaluate(() => window.Music._audio.volume), 0.5,
+      "settings dead -> cached cap holds");
+  } finally { await browser.close(); }
+});
+
 test("outfit board is untouched: no Music player, no song tiles", async () => {
   const browser = await chromium.launch();
   try {

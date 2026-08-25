@@ -129,9 +129,11 @@ function startWatcher(state) {
 async function boot() {
   // dwell time first (best-effort; default 1200 if /settings is unreachable).
   let dwellMs = 1200;
+  let musicVolCap;   // % loudness cap for the Songs Board (undefined = offline; player uses its cached value)
   try {
     const st = await (await fetch("/settings", { cache: "no-store" })).json();
     if (st.childName) window.ERA_CHILD_NAME = st.childName;
+    if (typeof st.musicVolCap === "number") musicVolCap = st.musicVolCap;
     dwellMs = clampDwell(st.dwellMs);
     if (window.Dwell) Dwell.setMs(dwellMs); // keep the engine default in sync
     // page-settle (27P #5b): runtime-tunable like the hold; clamp matches server.
@@ -167,7 +169,7 @@ async function boot() {
   // song tiles — the outfit board never pays for it.
   const allButtons = (r.json.boards || []).flatMap((b) => b.buttons || []);
   const music = allButtons.some((b) => b && b.type === "song")
-    ? createMusicPlayer({}) : null;
+    ? createMusicPlayer({ volCap: musicVolCap }) : null;
   const api = mountBoard({ mount: app, session, speech, dwellMs, music });
 
   // window hook: renderer API for kiosk control + pixel-audit state injection.

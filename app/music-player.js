@@ -54,9 +54,32 @@ function postEvent(songId, action) {
 // createMusicPlayer({ onState }) -> { play, stop, playingId, prefetch, cached }
 //   onState(playingId|null) fires on every playback state change so the
 //   renderer can move the `.playing` tile marker.
-export function createMusicPlayer({ onState } = {}) {
+export function createMusicPlayer({ onState, volCap } = {}) {
   const audio = new Audio();
   audio.preload = "auto";
+  // Music loudness cap (dad 8/24: quiet music for the classroom). One knob on
+  // the ERAgaze Settings page (server /settings musicVolCap, % of speaker
+  // volume) applies to every device; the launch URL may ALSO carry ?vol=1..100
+  // (the school kiosk bat passes a floor). STRICTEST WINS. The server value is
+  // remembered in localStorage so a dead network keeps the last cap, not full
+  // volume. Speech is untouched — this caps the music element only.
+  {
+    let urlV = null, srvV = null;
+    try {
+      const v = parseInt(new URLSearchParams(location.search).get("vol"), 10);
+      if (Number.isFinite(v) && v >= 1 && v <= 100) urlV = v;
+    } catch {}
+    if (typeof volCap === "number" && volCap >= 1 && volCap <= 100) {
+      srvV = Math.round(volCap);
+      try { localStorage.setItem("music:volCap", String(srvV)); } catch {}
+    } else {
+      try {
+        const c = parseInt(localStorage.getItem("music:volCap"), 10);
+        if (Number.isFinite(c) && c >= 1 && c <= 100) srvV = c;   // offline: last known cap
+      } catch {}
+    }
+    audio.volume = Math.min(urlV ?? 100, srvV ?? 100) / 100;
+  }
   let dbP = idbOpen();
   let gen = 0;             // render-generation guard (reader.js:156 pattern)
   let playing = null;      // song_id currently playing (null = silent)
