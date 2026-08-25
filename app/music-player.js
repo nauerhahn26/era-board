@@ -86,9 +86,14 @@ export function createMusicPlayer({ onState } = {}) {
     }
   }
 
+  // Stop remembers where she was (dad 8/24 r5): the hero resumes from there.
+  // A natural end clears it — after the song finishes, the hero starts fresh.
+  let resume = null;   // { id, pos, full }
+
   audio.addEventListener("ended", () => {
     // one pick = one song: at the end, silence. Nothing auto-plays.
     const was = playing;
+    resume = null;
     state(null);
     if (was) postEvent(was, "end");
   });
@@ -101,6 +106,7 @@ export function createMusicPlayer({ onState } = {}) {
     if (clipLimitMs != null && audio.currentTime * 1000 >= clipLimitMs) {
       clipLimitMs = null;
       const was = playing;
+      resume = null;                     // clip ran its course: hero starts fresh
       try { audio.pause(); } catch {}
       state(null);                       // clip over: silence, stay on the page
       if (was) postEvent(was, "end");
@@ -117,6 +123,7 @@ export function createMusicPlayer({ onState } = {}) {
     // btn: { song_id, audio: "music/<file>", v, clip_ms }
     const g = ++gen;
     try { audio.pause(); } catch {}
+    resume = null;                       // a fresh pick forgets any paused spot
     clipLimitMs = full ? null : clipOf(btn);
     state(btn.song_id);
     postEvent(btn.song_id, full ? "full" : "play");
@@ -144,11 +151,35 @@ export function createMusicPlayer({ onState } = {}) {
 
   function stop() {
     gen++;
-    clipLimitMs = null;
     const was = playing;
+    if (was && audio.currentTime > 0 && !audio.ended) {
+      // remember the spot (and whether the whole song was authorized)
+      resume = { id: was, pos: audio.currentTime, full: clipLimitMs == null };
+    }
+    clipLimitMs = null;
     try { audio.pause(); } catch {}
     state(null);
     if (was) postEvent(was, "stop");
+  }
+
+  // The HERO tile (the big cover art) — dad 8/24 r5: she often just LOOKS at
+  // the picture while listening, so while ITS song plays a hero activation is
+  // a NO-OP (never restarts). After Stop it RESUMES from where she left off
+  // (same clip/full mode); from silence with nothing to resume it starts fresh.
+  function heroTap(btn) {
+    if (playing === btn.song_id) return;               // she's just looking
+    if (resume && resume.id === btn.song_id && audio.src) {
+      const r = resume;
+      resume = null;
+      gen++;
+      clipLimitMs = r.full ? null : clipOf(btn);
+      state(btn.song_id);
+      postEvent(btn.song_id, "play");
+      // src is still loaded from the stopped playback; position was never reset
+      audio.play().catch(() => { state(null); });
+      return;
+    }
+    play(btn);
   }
 
   // Background prefetch: pull every song (and cover) into IDB, one at a time —
@@ -166,7 +197,7 @@ export function createMusicPlayer({ onState } = {}) {
   }
 
   const api = {
-    play, stop, full, prefetch,
+    play, stop, full, heroTap, prefetch,
     onState: onState || null,   // renderer assigns; moves the .playing marker
     playingId: () => playing,
     isFull: () => playing != null && clipLimitMs == null,

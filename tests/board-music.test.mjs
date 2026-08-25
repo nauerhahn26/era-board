@@ -103,9 +103,10 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(await onBoard(page), "song-test-song-1", "stays on the song page");
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
 
-    // ---- hero replays the clip ----
+    // ---- hero from silence (after a natural end): starts FRESH (dad r5) ----
     await page.locator(".tile.type-song").click();
     await waitPlaying(page, "test-song-1");
+    assert.ok((await audioState(page)).t < 1.0, "post-end hero starts from the beginning");
     assert.ok(await page.locator(".tile.type-song.playing").count() === 1, "hero wears the ring");
 
     // ---- Full song mid-clip: un-caps IN PLACE (no restart), plays to the end,
@@ -136,17 +137,32 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(await page.locator(".tile.type-song.full-on").count(), 0,
       "badge clears when the song ends");
 
-    // ---- Stop on the page: silence, stay on the page ----
-    await page.locator(".tile.type-song").click();
+    // ---- hero is gaze-safe while playing: activation = NO-OP (dad r5) ----
+    await page.locator(".tile.type-song").click();      // fresh clip from silence
     await waitPlaying(page, "test-song-1");
+    await page.waitForFunction(() => window.Music._audio.currentTime > 0.3);
+    const evCount = musicEvents.length;
+    const tA = (await audioState(page)).t;
+    await page.locator(".tile.type-song").click();      // she looks at the art
+    await page.waitForTimeout(250);
+    const sB = await audioState(page);
+    assert.equal(sB.paused, false, "still playing after a hero gaze");
+    assert.ok(sB.t >= tA, `no restart (${tA.toFixed(2)} -> ${sB.t.toFixed(2)})`);
+    assert.equal(musicEvents.length, evCount, "a no-op posts no event");
+
+    // ---- Stop remembers the spot; the hero RESUMES from it (dad r5) ----
     await page.locator(".tile.type-stop").click();
     await waitSilent(page);
     assert.equal(await onBoard(page), "song-test-song-1", "Stop does not navigate");
     assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "stop" });
+    const tStop = (await audioState(page)).t;
+    assert.ok(tStop > 0.2, "paused mid-clip with position kept");
+    await page.locator(".tile.type-song").click();      // hero: resume, not restart
+    await waitPlaying(page, "test-song-1");
+    const sR = await audioState(page);
+    assert.ok(sR.t >= tStop - 0.05, `resumed from the spot (${tStop.toFixed(2)} -> ${sR.t.toFixed(2)})`);
 
     // ---- back arrow: leaves the page AND stops the music ----
-    await page.locator(".tile.type-song").click();
-    await waitPlaying(page, "test-song-1");
     await page.locator(".tile.type-back").click();
     await page.waitForFunction(() => window.Board.session.currentId === "songs");
     await waitSilent(page);

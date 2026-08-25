@@ -463,9 +463,15 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     // silent; ANY nav that leaves the playing song's page stops the music —
     // which is why the grid has no Stop tile. One pick = one song, no queue.
     if (music && type === "song") {
-      if (btn.load != null) session.navigate(btn.load);   // silent door, never speaks
-      music.play(btn);                                    // default clip (clip_ms)
-      if (btn.load != null) render();
+      if (btn.load != null) {
+        session.navigate(btn.load);   // grid door: silent, always a fresh clip
+        music.play(btn);
+        render();
+        return;
+      }
+      // the HERO (dad r5): no-op while its song plays (she's looking at the
+      // art), resume after Stop, fresh start only from silence.
+      music.heroTap(btn);
       return;
     }
     if (music && type === "full") { music.full(btn); return; }
