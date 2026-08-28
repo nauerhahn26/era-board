@@ -68,9 +68,11 @@ const idleFor = () => Date.now() - lastActivity;
 // Fetch the recipe; on success also stash it as the last-good copy. On any
 // failure fall back to the stash. Returns {json, etag, offline} or null when
 // there is neither network nor cache.
+let recipeMiss = "";   // "no-content" = server answered 404; "net" = unreachable
 async function loadRecipe() {
   try {
     const res = await fetch(RECIPE_URL, { cache: "no-store" });
+    recipeMiss = res.status === 404 ? "no-content" : "net";
     if (!res.ok) throw new Error("recipe " + res.status);
     const text = await res.text();
     const json = JSON.parse(text); // parse BEFORE caching — never stash garbage
@@ -99,6 +101,16 @@ function showSplash(app) {
   d.className = "splash";
   d.textContent = "Your board is waking up…";
   app.appendChild(d);
+  // Server up but no board content (fresh public install): tell the grown-up
+  // what is going on instead of spinning forever. Still static, no targets.
+  if (recipeMiss === "no-content") {
+    const h = document.createElement("div");
+    h.className = "splash";
+    h.style.fontSize = "0.45em";
+    h.style.opacity = "0.7";
+    h.textContent = "Grown-ups: the hub has no board content yet. See neweracommunications.org for how to add choices, photos, and songs.";
+    app.appendChild(h);
+  }
 }
 
 // Watch the server: banner while unreachable, reload when the recipe changed —
