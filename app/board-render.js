@@ -83,8 +83,8 @@ const EXIT_TYPE = "exit";
 // installer's Chrome LNA policies (windows-device.ps1 step 2b) — no Allow prompt.
 function exitToTDSnap() {
   fetch("http://127.0.0.1:49155/app/exit", { method: "POST" })
-    .then((r) => { if (!r.ok) location.reload(); })
-    .catch(() => location.reload());
+    .then((r) => { if (!r.ok) location.href = "/home/"; })
+    .catch(() => { location.href = "/home/"; });   // product exit: back to the hub
 }
 
 // A "door" navigates the board (btn.load) or is a structural nav type. Doors get
