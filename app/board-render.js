@@ -53,16 +53,25 @@ export const CONFIG = {
            control: "#0F7C8A", category: "#6B7B82", back: "#6B7B82", more: "#6B7B82",
            exit: "#6B7B82",
            word: "#FFFFFF",
-           song: "#FFFFFF", stop: "#0F7C8A" },   // Songs Board (spec 8/24)
+           song: "#FFFFFF", stop: "#0F7C8A",     // Songs Board (spec 8/24)
+           show: "#FFFFFF", movie: "#FFFFFF", episode: "#FFFFFF" }, // Movies (spec 8/29)
   INK_DARK: "#17272E",
   INK_LIGHT: "#FFFFFF",
 };
 
 // tiles whose ink should be dark (light backgrounds)
-const LIGHT_BG = new Set(["outfit", "clothing", "word", "song"]);
+const LIGHT_BG = new Set(["outfit", "clothing", "word", "song",
+                          "show", "movie", "episode"]);
 
-// structural nav types (doors even if a recipe omits an explicit load)
-const NAV_TYPES = new Set(["category", "back", "more"]);
+// structural nav types (doors even if a recipe omits an explicit load).
+// `show` is the movies board's door tile: it navigates to its show board
+// (btn.board) with full door semantics — silent, deliberate nav hold.
+const NAV_TYPES = new Set(["category", "back", "more", "show"]);
+// movie/episode tiles LAUNCH the streaming app via ERAgaze — the board never
+// plays video (movies spec §5). Leaving the board for another app is at least
+// as big a commitment as a nav door, so they ride the nav-tier hold (existing
+// rung, no new number invented — whitelist principle, ux-contract).
+const LAUNCH_TYPES = new Set(["movie", "episode"]);
 // the EXIT tile leaves the app entirely (ERAgaze hands the screen to TD Snap) —
 // fixed longest hold, silent like every nav door (phase 4.1).
 const EXIT_TYPE = "exit";
@@ -82,7 +91,7 @@ function exitToTDSnap() {
 // the deliberate hold; everything else (outfit/clothing/yes/word/control-speak
 // leaves) is a content tile on the runtime dwellMs.
 function isDoor(btn, type) {
-  return btn.load != null || NAV_TYPES.has(type);
+  return btn.load != null || NAV_TYPES.has(type) || LAUNCH_TYPES.has(type);
 }
 // dwellMs = runtime content hold (from /settings). Returns this tile's hold ms.
 function tileDwellMs(btn, type, dwellMs) {
@@ -116,11 +125,14 @@ function imageSrc(path) {
 }
 function symbolSrc(name) { return "/symbol/" + encodeURIComponent(name); }
 
-// A "photo" fills its cell (her real clothes; a song's cover art); an "icon"
-// (symbol or gen-asset PNG) is contained with a label beside/under it.
+// A "photo" fills its cell (her real clothes; a song's cover art; a movie or
+// show poster); an "icon" (symbol or gen-asset PNG) is contained with a label
+// beside/under it. A movie/episode tile with image:null falls through to the
+// icon path with no image = a text tile at contract font sizes.
 function isPhoto(btn) {
   return typeof btn.image === "string" &&
-         (btn.image.startsWith("wardrobe/") || btn.image.startsWith("music/"));
+         (btn.image.startsWith("wardrobe/") || btn.image.startsWith("music/") ||
+          btn.image.startsWith("movies/"));
 }
 
 // ---- label fitting (word integrity) ----------------------------------------
@@ -197,6 +209,12 @@ function makeTile(btn, w, h, dwellMs) {
   el.style.background = bg;
   el.style.color = LIGHT_BG.has(type) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
 
+  // Movies board episode marks (spec §2 generator): "next" = the highlighted
+  // next-unwatched episode; "again" = the last-watched, offered as a rewatch.
+  // Pure CSS classes, same approach as the songs .playing marker.
+  if (btn.mark === "next") el.classList.add("mark-next");
+  else if (btn.mark === "again") el.classList.add("mark-again");
+
   const src = btn.image ? imageSrc(btn.image) : (btn.symbol ? symbolSrc(btn.symbol) : null);
   // songs-board control tiles maximize their text (dad's round 3): start the
   // fitter at the cap and let it walk down, instead of the h*0.3 heuristic.
@@ -266,8 +284,11 @@ function makeTile(btn, w, h, dwellMs) {
   }
 
   // icon tile: contained image + label. Short labels sit BESIDE the image
-  // (image left ~40%, label right) on roomy tiles; otherwise stacked.
-  const short = (btn.label || "").length <= CONFIG.BESIDE_MAX_CHARS &&
+  // (image left ~40%, label right) on roomy tiles; otherwise stacked. With no
+  // image at all (e.g. a poster-less movie tile) "beside" would left-shove a
+  // lone label — stacked centers it, pure text at contract sizes.
+  const short = src != null &&
+                (btn.label || "").length <= CONFIG.BESIDE_MAX_CHARS &&
                 w >= CONFIG.BESIDE_MIN_W;
   el.classList.add("icon", short ? "beside" : "stacked");
   if (src) {
@@ -440,6 +461,59 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // --- playing-song marker (Songs Board): the active song's tile carries
   // .playing so she can see what is on. Survives page nav via re-apply in render.
   let songEls = new Map(); // song_id -> tile element (rebuilt every render)
+
+  // --- currently-watching marker (Movies Board, spec 8/29): after a SUCCESSFUL
+  // /app/launch the launched tile wears .watching — the applyPlaying pattern:
+  // the key survives page nav in mount state, tiles are re-marked every render,
+  // and the next successful launch moves the marker. Nothing persists to disk;
+  // a board reload starts unmarked (ERAgaze owns the real watch session).
+  let movieEls = new Map();   // launch-key -> tile element (rebuilt every render)
+  let watchingKey = null;
+  const launchKey = (btn) =>
+    String(btn.titleId) +
+    (btn.episode ? ":s" + btn.episode.s + "e" + btn.episode.e : "");
+  function applyWatching() {
+    for (const [k, el] of movieEls) el.classList.toggle("watching", k === watchingKey);
+  }
+
+  // movie usage telemetry -> the family pool (clone of the music-event call:
+  // fire-and-forget, never blocks, never queues — nice-to-have, not precious).
+  function postMovieEvent(btn) {
+    const body = { titleId: btn.titleId, service: btn.service, action: "launch" };
+    if (btn.episode) body.episode = btn.episode;
+    try {
+      fetch("/movie-event", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => {});
+    } catch { /* telemetry is nice-to-have, never load-bearing */ }
+  }
+
+  // The launch: the board NEVER plays video — it hands the deep link to ERAgaze
+  // (POST /app/launch on the gaze bus port), which spawns the streaming kiosk
+  // and enters watch mode. No explicit Content-Type header, same as /app/exit:
+  // a simple request needs no CORS preflight against the native listener; the
+  // body is exactly the contract JSON. On failure (ERAgaze away/refusing) the
+  // board must stay usable for a caregiver rescue: brief calm visual flag on
+  // the tile, no crash, no reload, no marker, no event.
+  function launchMovie(btn, el) {
+    const body = { url: btn.url, watch: true, titleId: btn.titleId };
+    if (btn.episode) body.episode = btn.episode;
+    fetch("http://127.0.0.1:49155/app/launch", {
+      method: "POST", body: JSON.stringify(body),
+    }).then((r) => {
+      if (!r.ok) throw new Error("launch " + r.status);
+      watchingKey = launchKey(btn);   // marker moves only on a REAL launch
+      applyWatching();
+      postMovieEvent(btn);            // history/recommender counts real launches only
+    }).catch(() => {
+      if (el && el.isConnected) {
+        el.classList.add("launch-failed");
+        setTimeout(() => el.classList.remove("launch-failed"), 2000);
+      }
+    });
+  }
+
   function applyPlaying(id) {
     const full = !!(music && music.isFull && music.isFull());
     for (const [sid, el] of songEls) {
@@ -453,10 +527,19 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   if (music) music.onState = applyPlaying;
 
   // --- board render ---
-  function onTile(btn) {
+  function onTile(btn, el) {
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
     const type = (btn.type || "").toLowerCase();
+    // Movies Board (spec 8/29 §5): a show tile is a DOOR to its show board
+    // (episode picker) — silent nav, no launch, no event. movie/episode tiles
+    // LAUNCH the streaming app via ERAgaze; the board itself never plays video.
+    if (type === "show" && btn.board != null) {
+      session.navigate(btn.board);
+      render();
+      return;
+    }
+    if (LAUNCH_TYPES.has(type)) { launchMovie(btn, el); return; }
     // Songs Board v2 (dad's 8/24 feedback): playback lives ONLY on a song's own
     // page. A grid song door opens that page AND starts the default clip; the
     // hero tile on the page replays the clip; Full song un-caps it; Stop is
@@ -514,6 +597,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
 
     const fits = [];
     songEls = new Map();
+    movieEls = new Map();
     for (let i = 0; i < slots.length; i++) {
       const btn = slots[i];
       if (btn === TAKEN) continue;   // covered by a spanning neighbor
@@ -527,14 +611,17 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
       const rs = Math.max(1, btn.row_span | 0 || 1), cs = Math.max(1, btn.col_span | 0 || 1);
       // a spanning tile's real box includes the gaps it swallows
       const { el, fit } = makeTile(btn, w * cs + gap * (cs - 1), h * rs + gap * (rs - 1), contentDwellMs);
-      el.addEventListener("click", () => onTile(btn));
+      el.addEventListener("click", () => onTile(btn, el));
       if ((btn.type || "").toLowerCase() === "song" && btn.song_id) songEls.set(btn.song_id, el);
+      if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
+        movieEls.set(launchKey(btn), el);
       place(el, rs, cs);
       fits.push(fit);
     }
     // second pass: labels are only measurable once they are in the document.
     for (const fit of fits) fit();
     if (music) applyPlaying(music.playingId()); // marker survives page nav
+    applyWatching();                            // .watching survives page nav too
   }
 
   syncControls();

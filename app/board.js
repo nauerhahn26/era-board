@@ -184,6 +184,15 @@ async function boot() {
     ? createMusicPlayer({ volCap: musicVolCap }) : null;
   const api = mountBoard({ mount: app, session, speech, dwellMs, music });
 
+  // what-next deep link (movies spec §5): ?board=<id> opens the session on that
+  // board — how ERAgaze reveals the picker on a show's "what next?" page after
+  // an episode ends (?recipe=movies&board=<show>-next). Same sanitizing shape
+  // as ?recipe=; an unknown id is a safe no-op (session.navigate warns, stays).
+  try {
+    const b = new URLSearchParams(location.search).get("board");
+    if (b && /^[a-z0-9-]{1,64}$/.test(b)) api.show(b);
+  } catch { /* malformed URL: root board stands */ }
+
   // window hook: renderer API for kiosk control + pixel-audit state injection.
   window.Board = api;
   if (music) {

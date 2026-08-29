@@ -152,3 +152,24 @@ body{background:var(--paper); color:var(--ink);
 
 /* song-page hero (dad r4): title and the full-song strip at reading size */
 .tile.photo.hero .full-badge{font-size:64px; padding:14px 0}
+
+/* ---- Movies Board (spec 8/29) — same static ring/badge system as .playing:
+   no pulse (reduced-motion safe; motion near tiles fights the dwell fill). */
+/* mark:"next" — the next unwatched episode wears a teal ring + play glyph */
+.tile.mark-next{outline:8px solid #0F7C8A; outline-offset:-8px}
+.tile.mark-next::after{content:"▶"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#0F7C8A; pointer-events:none}
+/* mark:"again" — the last-watched episode, offered as a rewatch (rewatch is a
+   comprehension WIN, spec clinical grounding): calm grey replay glyph, no ring */
+.tile.mark-again::after{content:"↻"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#6B7B82; pointer-events:none}
+/* currently watching (set only after a SUCCESSFUL /app/launch): green ring +
+   glyph, exactly the .playing treatment. Declared LAST so it wins the outline
+   and ::after over any mark-* on the same tile. */
+.tile.watching{outline:8px solid #2E9E4B; outline-offset:-8px}
+.tile.watching::after{content:"▶"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#2E9E4B; pointer-events:none}
+/* launch failure (ERAgaze away/refusing): brief calm grey flag on the tile she
+   picked — never red (alarm colors are partner-only), gone in ~2s, the board
+   stays fully usable for a caregiver rescue. */
+.tile.launch-failed{outline:8px dashed #6B7B82; outline-offset:-8px; opacity:.72}
