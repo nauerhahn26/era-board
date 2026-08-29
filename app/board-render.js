@@ -496,9 +496,29 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // body is exactly the contract JSON. On failure (ERAgaze away/refusing) the
   // board must stay usable for a caregiver rescue: brief calm visual flag on
   // the tile, no crash, no reload, no marker, no event.
+  // D57c: the watch overlay's small "next episode" rail button needs the next
+  // episode's URL up front — derive it from the loaded recipe (episode cells of
+  // the same title across its show boards, season/episode order). One hop only;
+  // the full advance-loop is the what-next flow.
+  function nextEpisodeOf(btn) {
+    if (!btn.episode || !EC.session) return null;
+    const eps = [];
+    const boards = EC.session.model ? Array.from(EC.session.model.boards.values()) : [];
+    for (const b of boards)
+      for (const c of (b.buttons || []))
+        if (c.type === "episode" && c.titleId === btn.titleId && c.url) eps.push(c);
+    eps.sort((a, b) => (a.episode.s - b.episode.s) || (a.episode.e - b.episode.e));
+    const i = eps.findIndex((c) => c.episode.s === btn.episode.s && c.episode.e === btn.episode.e);
+    if (i < 0 || i + 1 >= eps.length) return null;
+    const n = eps[i + 1];
+    return { url: n.url, episode: n.episode, label: n.label };
+  }
+
   function launchMovie(btn, el) {
     const body = { url: btn.url, watch: true, titleId: btn.titleId };
     if (btn.episode) body.episode = btn.episode;
+    const nx = nextEpisodeOf(btn);
+    if (nx) body.next = nx;
     fetch("http://127.0.0.1:49155/app/launch", {
       method: "POST", body: JSON.stringify(body),
     }).then((r) => {
