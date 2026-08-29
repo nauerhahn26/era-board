@@ -104,11 +104,11 @@ function showSplash(app) {
   // Server up but no board content (fresh public install): tell the grown-up
   // what is going on instead of spinning forever. Still static, no targets.
   if (recipeMiss === "no-content") {
-    const h = document.createElement("div");
+    const h = document.createElement("a");
+    h.href = "/settings/";
     h.className = "splash";
-    h.style.fontSize = "0.45em";
-    h.style.opacity = "0.7";
-    h.textContent = "Grown-ups: the hub has no board content yet. See neweracommunications.org for how to add choices, photos, and songs.";
+    h.style.cssText = "font-size:0.55em;display:block;text-decoration:underline;cursor:pointer";
+    h.textContent = "No content yet. Grown-ups: connect Google Drive in Settings to add photos, choices, and songs - tap here.";
     app.appendChild(h);
   }
 }
