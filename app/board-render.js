@@ -132,7 +132,11 @@ function symbolSrc(name) { return "/symbol/" + encodeURIComponent(name); }
 function isPhoto(btn) {
   return typeof btn.image === "string" &&
          (btn.image.startsWith("wardrobe/") || btn.image.startsWith("music/") ||
-          btn.image.startsWith("movies/"));
+          btn.image.startsWith("movies/") ||
+          // the hub's Clothing Picker (item tiles, composite outfits, raw
+          // photos pre-catalog) — these rendered as small icons, dad 8/29
+          btn.image.startsWith("wardrobe-items/") || btn.image.startsWith("wardrobe-outfits/") ||
+          btn.image.startsWith("clothing-web/"));
 }
 
 // ---- label fitting (word integrity) ----------------------------------------
