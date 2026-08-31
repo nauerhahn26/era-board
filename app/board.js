@@ -95,22 +95,60 @@ async function loadRecipe() {
 
 // Calm full-screen splash for the nothing-to-show case (first boot + server
 // down). Static text, no targets — dwell has nothing to catch on.
+// For the CLOTHING board the no-content state is a live coach (dad 8/31: a
+// novice who just uploaded photos saw either nothing or raw photo dumps —
+// the splash must say what worked and what the ONE next step is). The hub's
+// /clothing/status tells us which state the family is in.
 function showSplash(app) {
   app.innerHTML = "";
   const d = document.createElement("div");
   d.className = "splash";
   d.textContent = "Your board is waking up…";
   app.appendChild(d);
-  // Server up but no board content (fresh public install): tell the grown-up
-  // what is going on instead of spinning forever. Still static, no targets.
-  if (recipeMiss === "no-content") {
-    const h = document.createElement("a");
-    h.href = "/settings/#integrations";
-    h.className = "splash";
-    h.style.cssText = "font-size:0.55em;display:block;text-decoration:underline;cursor:pointer";
-    h.textContent = "No content yet. Grown-ups: connect Google Drive in Settings to add photos, choices, and songs - tap here.";
-    app.appendChild(h);
-  }
+  if (recipeMiss !== "no-content") return;
+  const h = document.createElement("a");
+  h.className = "splash";
+  h.style.cssText = "font-size:0.55em;display:block;text-decoration:underline;cursor:pointer";
+  h.href = "/settings/#integrations";
+  h.textContent = "No content yet. Grown-ups: connect Google Drive in Settings to add photos, choices, and songs - tap here.";
+  app.appendChild(h);
+  if (RECIPE_NAME !== "today") return;   // coaching below is clothing-only
+
+  const paint = (s) => {
+    if (!s) return;
+    if (s.ingesting && s.ingesting.total) {
+      d.textContent = "Building the clothing picker…";
+      h.removeAttribute("href");
+      h.style.textDecoration = "none"; h.style.cursor = "default";
+      h.textContent = "Naming photo " + Math.min(s.ingesting.done + 1, s.ingesting.total) +
+        " of " + s.ingesting.total + " — the board opens by itself when it's ready.";
+    } else if (s.building) {
+      d.textContent = "Building the clothing picker…";
+      h.removeAttribute("href");
+      h.style.textDecoration = "none"; h.style.cursor = "default";
+      h.textContent = "Putting outfits together — almost there.";
+    } else if (s.photos > 0 && !s.aiConfigured) {
+      d.textContent = "We can see your " + s.photos + " clothing photos — great work! 🎉";
+      h.href = "/settings/#ai";
+      h.style.textDecoration = "underline"; h.style.cursor = "pointer";
+      h.textContent = "One more step: tap here to add an AI helper key in Settings, and New ERA will name each item and build daily outfits.";
+    } else if (s.aiConfigured && !s.photos && !s.cataloged) {
+      d.textContent = "Your AI helper is ready ✓";
+      h.href = "/settings/#integrations";
+      h.style.textDecoration = "underline"; h.style.cursor = "pointer";
+      h.textContent = "Now add photos of clothes to the clothing folder in Google Drive — tap here for the guide. Outfits build themselves after that.";
+    }
+    // neither photos nor key: the default Drive message above already fits
+  };
+  const poll = async () => {
+    try { paint(await (await fetch("/clothing/status", { cache: "no-store" })).json()); }
+    catch { /* hub briefly away: keep the current text */ }
+  };
+  poll();
+  const t = setInterval(() => {
+    if (!document.body.contains(d)) { clearInterval(t); return; }   // board mounted
+    poll();
+  }, 3000);
 }
 
 // Watch the server: banner while unreachable, reload when the recipe changed —
