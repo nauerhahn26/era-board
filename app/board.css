@@ -90,16 +90,21 @@ body{background:var(--paper); color:var(--ink);
 
 /* ---- partner warn banner (T2.2) — touch only, NOT .dwell, styled like Pencil's
    #ttsWarn. Hidden until board.js finds TTS fell back/off. ---- */
-#ttsWarn{display:none; position:fixed; top:0; left:50%; transform:translateX(-50%);
-         background:#B23A48; color:#fff; font-size:22px; padding:8px 22px;
-         border-radius:0 0 12px 12px; z-index:70; font-family:var(--font)}
+/* Anchored to the LEFT of the bar, never centred: centred it sat straight on
+   top of Speak at 1280x720 and hid a core control (pixel gate, 9/1). Width is
+   capped so a longer sentence wraps instead of growing across the bar. */
+#ttsWarn{display:none; position:fixed; top:0; left:8px; max-width:46vw;
+         background:#B23A48; color:#fff; font-size:19px; line-height:1.25;
+         padding:7px 16px; border-radius:0 0 12px 12px; z-index:70;
+         font-family:var(--font)}
 #ttsWarn.show{display:block}
 
 /* ---- offline banner (T3.3) — same partner-strip treatment, warm amber so it
    reads "degraded" not "broken"; sits below ttsWarn if both ever show. ---- */
-#netWarn{display:none; position:fixed; top:48px; left:50%; transform:translateX(-50%);
-         background:#8A5A18; color:#fff; font-size:22px; padding:8px 22px;
-         border-radius:0 0 12px 12px; z-index:70; font-family:var(--font)}
+#netWarn{display:none; position:fixed; top:56px; left:8px; max-width:46vw;
+         background:#8A5A18; color:#fff; font-size:19px; line-height:1.25;
+         padding:7px 16px; border-radius:0 0 12px 12px; z-index:70;
+         font-family:var(--font)}
 #netWarn.show{display:block}
 
 /* ---- boot splash (T3.3) — nothing-to-show case; static, zero dwell targets */
