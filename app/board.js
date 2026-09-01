@@ -132,6 +132,14 @@ function showSplash(app) {
       h.href = "/settings/#ai";
       h.style.textDecoration = "underline"; h.style.cursor = "pointer";
       h.textContent = "One more step: tap here to add an AI helper key in Settings, and New ERA will name each item and build daily outfits.";
+    } else if (s.guidance === "ai-busy") {
+      // the AI provider throttled every photo (Google's free tier answers 503
+      // "high demand" in bursts). The hub retries by itself; say so plainly
+      // instead of leaving a family staring at an empty board (9/1).
+      d.textContent = "The AI helper is busy right now";
+      h.removeAttribute("href");
+      h.style.textDecoration = "none"; h.style.cursor = "default";
+      h.textContent = "Your photos are safe — New ERA keeps trying and the outfits appear by themselves, usually within an hour.";
     } else if (s.aiConfigured && !s.photos && !s.cataloged) {
       d.textContent = "Your AI helper is ready ✓";
       h.href = "/settings/#integrations";

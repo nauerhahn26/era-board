@@ -51,6 +51,20 @@ test("key + no photos: points at the Drive clothing folder", async () => {
   } finally { await browser.close(); }
 });
 
+test("provider throttled: says so plainly, promises the retry (9/1 Google 503s)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page } = await makePage(browser, {
+      building: false, ingesting: null, cataloged: 0, photos: 8,
+      aiConfigured: true, guidance: "ai-busy" });
+    await page.waitForFunction(() => document.body.textContent.includes("busy right now"), null, { timeout: 8000 });
+    const txt = await splashText(page);
+    assert.match(txt, /photos are safe/i);
+    assert.match(txt, /keeps trying/i);
+    assert.equal(await page.locator('a[href]').count(), 0, "no dead-end link while it retries");
+  } finally { await browser.close(); }
+});
+
 test("mid-ingest: live progress, and the board mounts by itself when the recipe lands", async () => {
   const browser = await chromium.launch();
   try {
