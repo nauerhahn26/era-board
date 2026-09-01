@@ -130,7 +130,10 @@ function showSplash(app) {
       h.style.textDecoration = "none"; h.style.cursor = "default";
       h.textContent = "Putting outfits together — almost there.";
     } else if (s.photos > 0 && !s.aiConfigured) {
-      d.textContent = "We can see your " + s.photos + " clothing photos — great work! 🎉";
+      // No count: Drive materialises files gradually, so any number we print is
+      // stale the moment a parent adds more (dad 9/1: "it said 4, I uploaded
+      // lots more — just say you see photos").
+      d.textContent = "We can see your clothing photos — great work! 🎉";
       h.href = "/settings/#ai";
       h.style.textDecoration = "underline"; h.style.cursor = "pointer";
       h.textContent = "One more step: tap here to add an AI helper key in Settings, and New ERA will name each item and build daily outfits.";

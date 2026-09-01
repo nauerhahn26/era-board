@@ -79,9 +79,12 @@ body{background:var(--paper); color:var(--ink);
 .tile.icon.beside{flex-direction:row}
 .tile.icon.stacked{flex-direction:column}
 .tile.icon .tile-img.contain{object-fit:contain}
-.tile.icon.beside .tile-img{flex:0 0 38%; width:38%; height:74%}
+.tile.icon.beside .tile-img{flex:0 0 42%; width:42%; height:80%}
 .tile.icon.beside .tile-label{flex:1 1 auto; text-align:left}
-.tile.icon.stacked .tile-img{flex:1 1 auto; min-height:0; width:70%; align-self:center}
+/* min-height:0 let a two-line label + footnote squeeze the picture to a dot
+   on 1920x1080 (dad 9/1: "the image for weather or build my own is too
+   small"). The picture is the message — guarantee it half the tile. */
+.tile.icon.stacked .tile-img{flex:1 1 auto; min-height:0; width:74%; align-self:center}
 .tile.icon.stacked .tile-label{flex:0 0 auto; max-width:100%}
 /* dad-only freshness stamp (weather tile): deliberately tiny — a debug read
    for dad, NOT a choice for Ellie, so it sits below the 74px contract floor */
@@ -93,15 +96,18 @@ body{background:var(--paper); color:var(--ink);
 /* Anchored to the LEFT of the bar, never centred: centred it sat straight on
    top of Speak at 1280x720 and hid a core control (pixel gate, 9/1). Width is
    capped so a longer sentence wraps instead of growing across the bar. */
-#ttsWarn{display:none; position:fixed; top:0; left:8px; max-width:46vw;
+/* Bottom-centre, never the bar: anchored left it covered the exit door once the
+   bar slimmed to 96px, and centred at the top it covered Speak (pixel gate,
+   9/1). Down here it only ever overlaps inert rest cells. */
+#ttsWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:52vw;
          background:#B23A48; color:#fff; font-size:19px; line-height:1.25;
-         padding:7px 16px; border-radius:0 0 12px 12px; z-index:70;
+         padding:7px 16px; border-radius:12px; z-index:70;
          font-family:var(--font)}
 #ttsWarn.show{display:block}
 
 /* ---- offline banner (T3.3) — same partner-strip treatment, warm amber so it
    reads "degraded" not "broken"; sits below ttsWarn if both ever show. ---- */
-#netWarn{display:none; position:fixed; top:56px; left:8px; max-width:46vw;
+#netWarn{display:none; position:fixed; bottom:60px; left:50%; transform:translateX(-50%); max-width:52vw;
          background:#8A5A18; color:#fff; font-size:19px; line-height:1.25;
          padding:7px 16px; border-radius:0 0 12px 12px; z-index:70;
          font-family:var(--font)}

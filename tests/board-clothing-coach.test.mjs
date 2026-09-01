@@ -33,7 +33,8 @@ test("photos + no key: celebrates the upload and deep-links the AI step", async 
   try {
     const { page } = await makePage(browser, {
       building: false, ingesting: null, cataloged: 0, photos: 20, aiConfigured: false });
-    await page.waitForFunction(() => document.body.textContent.includes("20 clothing photos"), null, { timeout: 8000 });
+    // no count: Drive materialises files gradually so any number is stale (9/1)
+    await page.waitForFunction(() => document.body.textContent.includes("your clothing photos"), null, { timeout: 8000 });
     const txt = await splashText(page);
     assert.match(txt, /great work/i);
     assert.match(txt, /AI helper key/i);

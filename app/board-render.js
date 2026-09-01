@@ -34,7 +34,8 @@ export const CONFIG = {
   PHOTO_FONT_CAP: EC.sizes.photoFontCap,
   PHOTO_FONT_MIN: EC.sizes.photoFontMin,
   BESIDE_MAX_CHARS: 14,
-  BESIDE_MIN_W: 520, // beside layout only on tiles wide enough for a 74px label
+  BESIDE_MIN_W: 430, // beside layout only on tiles wide enough for a 74px label
+                     // (520 pushed a 13" 1920-wide board into stacked, shrinking icons)
   // Dwell holds (ms) — T2.1. Content tiles (speak/append leaves) use the runtime
   // /settings dwellMs; nav DOORS get a deliberate max(dwellMs+400, 1600). Bar
   // Speak/Clear are fixed long holds. A tile is a "door" when it navigates
