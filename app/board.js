@@ -108,7 +108,9 @@ function showSplash(app) {
   if (recipeMiss !== "no-content") return;
   const h = document.createElement("a");
   h.className = "splash";
-  h.style.cssText = "font-size:0.55em;display:block;text-decoration:underline;cursor:pointer";
+  // 0.55em of the giant splash headline rendered as fine print a parent could
+  // not read across the room (QA 9/1). Fixed, generous px instead.
+  h.style.cssText = "font-size:34px;line-height:1.35;display:block;max-width:22em;margin:28px auto 0;text-decoration:underline;cursor:pointer";
   h.href = "/settings/#integrations";
   h.textContent = "No content yet. Grown-ups: connect Google Drive in Settings to add photos, choices, and songs - tap here.";
   app.appendChild(h);
