@@ -66,6 +66,19 @@ test("provider throttled: says so plainly, promises the retry (9/1 Google 503s)"
   } finally { await browser.close(); }
 });
 
+test("free allowance spent: says it resets overnight, promises no loss (9/1)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page } = await makePage(browser, {
+      building: false, ingesting: null, cataloged: 0, photos: 30,
+      aiConfigured: true, guidance: "ai-quota" });
+    await page.waitForFunction(() => document.body.textContent.includes("allowance is used up"), null, { timeout: 8000 });
+    const txt = await splashText(page);
+    assert.match(txt, /resets overnight/i);
+    assert.match(txt, /photos are safe/i);
+  } finally { await browser.close(); }
+});
+
 test("mid-ingest: live progress, and the board mounts by itself when the recipe lands", async () => {
   const browser = await chromium.launch();
   try {
