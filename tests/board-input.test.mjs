@@ -5,7 +5,7 @@
 // Voice is asserted via a Speech spy: board.js installs it only when
 // window.__testHooks is set (addInitScript, before any page script), logging
 // say/stop calls in order to window.__speechLog. Verifies barge-in ordering
-// (stop before say), SILENT nav doors, and bar Speak joining chips.
+// (stop before say), SILENT nav doors, and the slim door-only bar (dad 9/2).
 //
 // Kept hermetic like the pixel gate: /voices disabled, /tts 503, /log swallowed.
 // Runs under `node --test` or `node tests/board-input.test.mjs`.
@@ -127,7 +127,7 @@ test("brief hover (300ms) then leaving does NOT activate", async () => {
   } finally { await browser.close(); }
 });
 
-test("tapping a nav door is SILENT; bar Speak says the joined chips", async () => {
+test("tapping a nav door is SILENT; the bar carries the door and nothing else", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page } = await makePage(browser, { touch: true });
@@ -136,17 +136,23 @@ test("tapping a nav door is SILENT; bar Speak says the joined chips", async () =
     await page.locator(".tile.type-category").first().tap();
     assert.deepEqual(await log(page), [{ call: "stop" }], "nav door: no say");
 
-    // bar Speak joins chip labels in her voice.
-    await page.evaluate(() => {
-      window.Board.appendChip({ label: "Rainbow tee" });
-      window.Board.appendChip({ label: "Mint shorts" });
-      window.Board.appendChip({ label: "Yes" });
+    // dad 9/2: "get rid of speak/clear we aren't using it." The bar is a slim
+    // strip holding the exit door alone — no Speak, no Clear, no chips strip.
+    const bar = await page.evaluate(() => {
+      const b = document.querySelector(".msgbar");
+      return {
+        kids: [...b.children].map((el) => el.id || el.className),
+        speak: !!document.querySelector("#barSpeak"),
+        clear: !!document.querySelector("#barClear"),
+        chips: !!document.querySelector(".chips"),
+        hPct: +((b.getBoundingClientRect().height / innerHeight) * 100).toFixed(1),
+      };
     });
-    await resetLog(page);
-    await page.locator("#barSpeak").tap();
-    const l = await log(page);
-    assert.equal(l[0].call, "stop", "Speak stops first");
-    assert.deepEqual(l[1], { call: "say", text: "Rainbow tee Mint shorts Yes" }, "Speak says joined chips");
+    assert.ok(!bar.speak && !bar.clear, "no Speak/Clear button anywhere");
+    assert.ok(!bar.chips, "no chips strip");
+    assert.deepEqual(bar.kids, ["barDoor"], "the door is the bar's only child");
+    // "the header is still too big" — the strip may not exceed 9% of the screen
+    assert.ok(bar.hPct <= 9.1, `bar is a slim strip (was ${bar.hPct}% of the viewport)`);
     await ctx.close();
   } finally { await browser.close(); }
 });
@@ -186,8 +192,8 @@ test("msgbar door (top-left, D47): always armed, 2400ms hold, silent POST /app/e
     await ctx.route("http://127.0.0.1:49155/app/exit", (r) => { exitHits++; r.fulfill({ status: 200, body: "" }); });
 
     const door = page.locator("#barDoor");
-    // placement + arming: leftmost bar element, live dwell target with ZERO chips
-    // (Speak/Clear are disabled empty; the door never is).
+    // placement + arming: leftmost bar element, always a live dwell target
+    // (it is the only control in the bar since dad 9/2).
     const meta = await door.evaluate((el) => ({
       first: el.parentElement.firstElementChild === el,
       inBar: !!el.closest(".msgbar"),

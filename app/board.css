@@ -17,31 +17,29 @@ body{background:var(--paper); color:var(--ink);
 #app{position:fixed; inset:0; display:flex; flex-direction:column;
      width:100vw; height:100vh}
 
-/* ---- message bar (reserved strip) ---- */
+/* ---- message bar: a SLIM strip, exit door only (dad 9/2) ----
+   "Get rid of speak/clear we aren't using it. The header is still too big. The
+   icon for the exit can be smaller. Items in the top corners are more easily
+   accessible." — so Speak, Clear and the chips strip that fed them are gone and
+   the bar is at most 9% of the viewport (board-render.js barHeight()), which
+   hands the rest of the screen to the grid. Height is set inline per render. */
+/* the deeper BOTTOM padding is load-bearing: the door fills the strip, so with
+   even padding it sat 27px from the first tile — under the 28px mishit floor
+   the gates enforce (pixel gate, 9/2). */
 .msgbar{flex:0 0 auto; width:100%; display:flex; align-items:stretch;
-        gap:28px; padding:14px 24px; background:var(--bar-bg); color:var(--bar-ink);
-        border-bottom:3px solid var(--teal-deep)}
-.chips{flex:1 1 auto; display:flex; align-items:center; gap:18px;
-       overflow:hidden; min-width:0}
-.chip{flex:0 0 auto; display:flex; align-items:center; gap:12px;
-      background:#FFFFFF; color:var(--ink); border-radius:18px;
-      padding:6px 20px; height:100%; max-height:112px}
-.chip-img{height:88px; width:88px; object-fit:contain; border-radius:10px}
-.chip-label{font-size:74px; font-weight:800; line-height:1; white-space:nowrap}
+        gap:0; padding:6px 12px 10px; background:var(--bar-bg); color:var(--bar-ink);
+        border-bottom:2px solid var(--teal-deep)}
 
 /* top-left door back to TD Snap (dad 8/5, D47): small bar chrome, exit grey
-   (matches the type-exit tile color), full bar-content height. Always a live
-   2400ms dwell target — never disabled. */
-.bardoor{flex:0 0 auto; min-width:150px; border:none; border-radius:20px;
-         cursor:pointer; font-family:var(--font); font-size:74px; line-height:1;
-         background:#6B7B82; color:#FFFFFF; padding:0 18px}
-
-.barctl{flex:0 0 auto; display:flex; align-items:stretch; gap:28px}
-.barbtn{min-width:220px; border:none; border-radius:20px; cursor:pointer;
-        font-family:var(--font); font-size:clamp(74px,4vw,88px); font-weight:800;
-        color:#FFFFFF; background:var(--teal); padding:0 28px}
-#barClear{background:#8A5A2B}
-.barbtn[aria-disabled="true"]{opacity:.38; cursor:default}
+   (matches the type-exit tile color), full bar-content height, twice as wide as
+   tall. Always a live 2400ms dwell target — never disabled. Width and glyph
+   size come from board-render.js so the door tracks the strip. This is the
+   board's one sanctioned break from the >=90px dwell-target law (dad 9/2: the
+   exit icon can be smaller, and a top corner is the easiest reach on screen). */
+.bardoor{flex:0 0 auto; border:none; border-radius:12px; padding:0;
+         cursor:pointer; font-family:var(--font); line-height:1;
+         display:flex; align-items:center; justify-content:center;
+         background:#6B7B82; color:#FFFFFF}
 
 /* ---- board grid: fills the whole remaining area with wide rectangles ---- */
 .board-area{flex:1 1 auto; width:100%; display:grid;
@@ -74,19 +72,31 @@ body{background:var(--paper); color:var(--ink);
                   padding:8px 10px; display:flex; align-items:center; justify-content:center;
                   border-top:2px solid var(--line)}
 
-/* icon tiles: image + label, beside (short label, roomy tile) or stacked */
-.tile.icon{gap:12px; padding:14px 18px}
+/* icon tiles: image + label, beside (the picture is BIG, the word next to it —
+   her tablet's look, dad 9/2) or stacked when a word cannot fit beside at all.
+   Padding and gap are tight so a narrow tile still leaves the label room. */
+.tile.icon{gap:8px; padding:10px 12px}
 .tile.icon.beside{flex-direction:row}
 .tile.icon.stacked{flex-direction:column}
 .tile.icon .tile-img.contain{object-fit:contain}
-.tile.icon.beside .tile-img{flex:0 0 42%; width:42%; height:80%}
-.tile.icon.beside .tile-label{flex:1 1 auto; text-align:left}
+/* --icon-w is set per tile by board-render.js (42%, 45% on the weather plate,
+   and only as a last resort 30% when a long word has nowhere else to go). */
+.tile.icon.beside .tile-img{flex:0 0 var(--icon-w,42%); width:var(--icon-w,42%); height:82%}
+.tile.icon.beside .tile-label{flex:1 1 auto; text-align:left; min-width:0}
 /* min-height:0 is deliberate, and the fix for a squeezed picture is NOT to
    floor it here: a floor steals the label's room and the font drops under the
    74px gaze contract (QA 9/2 measured 54-58px). A tile that needs both a real
-   picture and real text goes BESIDE instead — see BESIDE_MAX_CHARS. */
+   picture and real text goes BESIDE instead — see BESIDE_MIN_W. */
 .tile.icon.stacked .tile-img{flex:1 1 auto; min-height:0; width:74%; align-self:center}
 .tile.icon.stacked .tile-label{flex:0 0 auto; max-width:100%}
+
+/* weather plate (dad 9/2, matching her tablet): the sun/cloud leads at 45% of
+   the tile with "76°" over "warm" beside it — deliberately SMALLER text than
+   the rest of the board ("weather text is too big cannot see sunny/cloudy
+   image"), which is why board-render starts its fitter low. The bottom padding
+   reserves the freshness-stamp line so it can never land on the temperature
+   again (it did at 1024 wide, QA 9/2). */
+.tile.icon.weather{padding-bottom:26px}
 /* dad-only freshness stamp (weather tile): deliberately tiny — a debug read
    for dad, NOT a choice for Ellie, so it sits below the 74px contract floor */
 .tile-foot{position:absolute; left:0; right:0; bottom:5px; text-align:center;
@@ -94,12 +104,10 @@ body{background:var(--paper); color:var(--ink);
 
 /* ---- partner warn banner (T2.2) — touch only, NOT .dwell, styled like Pencil's
    #ttsWarn. Hidden until board.js finds TTS fell back/off. ---- */
-/* Anchored to the LEFT of the bar, never centred: centred it sat straight on
-   top of Speak at 1280x720 and hid a core control (pixel gate, 9/1). Width is
-   capped so a longer sentence wraps instead of growing across the bar. */
 /* Bottom-centre, never the bar: anchored left it covered the exit door once the
-   bar slimmed to 96px, and centred at the top it covered Speak (pixel gate,
-   9/1). Down here it only ever overlaps inert rest cells. */
+   bar slimmed, and centred at the top it covered the bar controls of the day
+   (pixel gate, 9/1). Down here it only ever overlaps inert rest cells. Width is
+   capped so a longer sentence wraps instead of growing across the screen. */
 #ttsWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:52vw;
          background:#B23A48; color:#fff; font-size:19px; line-height:1.25;
          padding:7px 16px; border-radius:12px; z-index:70;
@@ -126,18 +134,15 @@ body{background:var(--paper); color:var(--ink);
    .dwell-active BEFORE it inserts the fill, so a transition can't fire (no initial
    render transitions) — we use an ANIMATION, which DOES run on first paint. The
    fill's HEIGHT still tracks true progress throughout; only its opacity is gated.
-   Selectors are .tile/.barbtn-scoped to outrank dwell.js's injected .dwell-fill
+   Selectors are .tile/.bardoor-scoped to outrank dwell.js's injected .dwell-fill
    rules (equal specificity, appended last). NO dwell.js edit. */
 @keyframes dwellOnset{ 0%{opacity:0} 58%{opacity:0} 100%{opacity:.28} }
-.tile.dwell-active .dwell-fill, .barbtn.dwell-active .dwell-fill,
-.bardoor.dwell-active .dwell-fill{
+.tile.dwell-active .dwell-fill, .bardoor.dwell-active .dwell-fill{
   opacity:.28; animation:dwellOnset 340ms linear both}
-.tile.dwell-paused .dwell-fill, .barbtn.dwell-paused .dwell-fill,
-.bardoor.dwell-paused .dwell-fill{
+.tile.dwell-paused .dwell-fill, .bardoor.dwell-paused .dwell-fill{
   animation:none; opacity:.14}
 @media (prefers-reduced-motion: reduce){
-  .tile.dwell-active .dwell-fill, .barbtn.dwell-active .dwell-fill,
-  .bardoor.dwell-active .dwell-fill{animation:none}
+  .tile.dwell-active .dwell-fill, .bardoor.dwell-active .dwell-fill{animation:none}
 }
 
 /* ---- Songs Board (spec 8/24): the active song's tile wears a thick green

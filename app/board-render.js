@@ -1,6 +1,8 @@
 // board-render.js — DOM renderer + message bar (T1.2 + T1.3, post Gate-1 review).
-// Fixed chrome: a top message-bar strip of RESERVED height (zero layout shift
-// whether empty or full) and a board area below. The grid FILLS the remaining
+// Fixed chrome: a SLIM top strip (<=9% of the viewport) holding only the exit
+// door, top-left, and a board area below. Dad 9/2, matching Ellie's tablet:
+// "get rid of speak/clear we aren't using it. The header is still too big. The
+// icon for the exit can be smaller." The grid FILLS the remaining
 // screen with wide rectangular tiles (TD Snap style): rows x cols stretch to the
 // full area, 28px gap, side padding <= 48. Every empty cell is a black inert
 // rest box; declared rows always render (never-empty bottom row).
@@ -19,7 +21,12 @@ import { createOutfitEvents } from "./board-events.js";
 // whitelist; mirrors knowledge/ux-contract.md). CONFIG keeps the renderer's
 // historical names so call sites read naturally; it holds no numbers of its own.
 export const CONFIG = {
-  BAR_H: EC.sizes.barH,          // reserved message-bar height, always
+  BAR_H: EC.sizes.barH,          // reserved message-bar CEILING (tall displays)
+  // dad 9/2 ("the header is still too big"): the bar is a SLIM strip like the
+  // one on Ellie's tablet — at most 9% of the viewport height, so it costs
+  // ~96px on the i13 (1920x1080) and ~69px on the 1024x768 QA VM instead of a
+  // flat 124. The contract's barH stays the ceiling for very tall panels.
+  BAR_H_FRAC: 0.09,
   SIDE_PAD: EC.sizes.sidePadBoard, // <= 48 per Gate-1 review (>= 40 per original spec)
   V_PAD: EC.sizes.vPad,
   GAP: EC.sizes.gapFloor,        // fixed grid gap (the mishit-resistance floor)
@@ -38,17 +45,30 @@ export const CONFIG = {
   // it showed a proper shirt (QA 9/2). Beside gives a wrapping label both a
   // real picture and its contract font; stacked can only give one.
   BESIDE_MAX_CHARS: 16,
-  BESIDE_MIN_W: 430, // beside layout only on tiles wide enough for a 74px label
-                     // (520 pushed a 13" 1920-wide board into stacked, shrinking icons)
-  // Dwell holds (ms) — T2.1. Content tiles (speak/append leaves) use the runtime
-  // /settings dwellMs; nav DOORS get a deliberate max(dwellMs+400, 1600). Bar
-  // Speak/Clear are fixed long holds. A tile is a "door" when it navigates
-  // (btn.load) or is a structural nav type (category/back/more).
+  // dad 9/2 ("change bottoms image ... is too small", "make it match the images
+  // I shared"): on her tablet EVERY pictogram tile is a BIG picture with the
+  // word next to it. 430 kept beside for the roomy 2-column pages but dropped
+  // the 4-column today page (a 1024-wide board gives 211px tiles) back to
+  // stacked, where the picture is a speck above the word. Beside is now the
+  // layout for any tile that can still hold the picture; a long word shrinks
+  // the LABEL (and, if it must, the picture a little) instead.
+  BESIDE_MIN_W: 190,
+  ICON_SHARE: 0.42,   // picture's share of a beside tile's width
+  ICON_SHARE_MIN: 0.30, // ...and the least it may yield to a cramped label
+  WEATHER_ICON_SHARE: 0.45, // the weather plate leads with the sun/cloud (dad 9/2)
+  // The weather plate's reading rides in its own, smaller band — dad's explicit
+  // exception to the 74px text floor on 9/2 ("weather text is too big cannot
+  // see sunny/cloudy image"; he asked for "roughly 40-48px each at 1024 wide").
+  // The picture is the message here, exactly as on a photo tile's plate.
+  WEATHER_FONT_MIN: 36,
+  // Dwell holds (ms) — T2.1. Content tiles (speak leaves) use the runtime
+  // /settings dwellMs; nav DOORS get a deliberate max(dwellMs+400, 1600).
+  // A tile is a "door" when it navigates (btn.load) or is a structural nav
+  // type (category/back/more). (Speak/Clear and their holds are gone — dad 9/2
+  // "get rid of speak/clear we aren't using it".)
   DWELL_DEFAULT: EC.holds.content, // fallback when /settings is unreachable
   DWELL_NAV_MIN: EC.holds.navMin,  // floor for nav-door holds
   DWELL_NAV_BONUS: EC.holds.navBonus, // added to content dwell for doors, before the floor
-  DWELL_SPEAK: EC.holds.answer,
-  DWELL_CLEAR: EC.holds.clear,
   DWELL_EXIT: EC.holds.exit,       // the round-trip door back to TD Snap
   // type -> tile background. rest black; yes green; outfit/clothing white;
   // control teal; category/back/more grey. (board-design-rules.md)
@@ -111,6 +131,13 @@ function tileDwellMs(btn, type, dwellMs) {
 }
 
 // ---- sizing math (pure) ----------------------------------------------------
+
+// Slim message bar (dad 9/2): a fraction of the viewport, capped by the
+// contract's reserved height. Recomputed on every render, so a resize (or the
+// jump from the 1024x768 QA VM to the i13) keeps the same 9% strip.
+export function barHeight(vh) {
+  return Math.min(CONFIG.BAR_H, Math.round(vh * CONFIG.BAR_H_FRAC));
+}
 
 // Fill-the-area grid: tiles are free-floating rectangles; rows x cols stretch to
 // the available box with a fixed 28px gap. (Gate-1: "use the screen".)
@@ -191,6 +218,22 @@ function applyPhotoFit(labelEl) {
   return f;
 }
 
+// Weather-plate fitting (dad 9/2): its own smaller band, walked down from
+// startPx to WEATHER_FONT_MIN. Word integrity is unchanged — no horizontal
+// overflow, nothing clipped; only the floor differs, because on this one tile
+// the sun/cloud is the message and the reading rides beside it.
+function applyWeatherFit(labelEl, maxH, startPx) {
+  const fits = (f) => {
+    labelEl.style.fontSize = f + "px";
+    return labelEl.scrollWidth <= labelEl.clientWidth + 1 && labelEl.scrollHeight <= maxH;
+  };
+  let f = Math.max(CONFIG.WEATHER_FONT_MIN, Math.min(CONFIG.FONT_CAP, startPx));
+  for (; f > CONFIG.WEATHER_FONT_MIN; f -= 2) if (fits(f)) break;
+  if (f <= CONFIG.WEATHER_FONT_MIN) { f = CONFIG.WEATHER_FONT_MIN; fits(f); }
+  labelEl.dataset.fontPx = String(f);
+  return f;
+}
+
 function applyFit(labelEl, tiers, startPx) {
   const { f } = fitFont(labelEl, tiers, startPx);
   labelEl.dataset.fontPx = String(f);
@@ -230,10 +273,16 @@ function makeTile(btn, w, h, dwellMs) {
   else if (btn.mark === "again") el.classList.add("mark-again");
 
   const src = btn.image ? imageSrc(btn.image) : (btn.symbol ? symbolSrc(btn.symbol) : null);
+  // The weather plate is the tile carrying the dad-only freshness stamp — the
+  // only button in any recipe with a `footnote` (era-hub clothing-worker.js).
+  const isWeather = btn.footnote != null;
   // songs-board control tiles maximize their text (dad's round 3): start the
   // fitter at the cap and let it walk down, instead of the h*0.3 heuristic.
-  const startPx = (type === "stop" || type === "full")
-    ? CONFIG.FONT_CAP : Math.round(h * 0.3);
+  // The weather plate starts LOW (dad 9/2: "weather text is too big cannot see
+  // sunny/cloudy image") so "76°" over "warm" reads at the contract floor
+  // rather than shouting over the sun.
+  const startPx = (type === "stop" || type === "full") ? CONFIG.FONT_CAP
+    : Math.round(h * (isWeather ? 0.24 : 0.3));
 
   if (isPhoto(btn)) {
     // photo-first (dad 7/24): the outfit photo IS the message — it keeps ~4/5
@@ -298,17 +347,23 @@ function makeTile(btn, w, h, dwellMs) {
   }
 
   // icon tile: contained image + label. Short labels sit BESIDE the image
-  // (image left ~40%, label right) on roomy tiles; otherwise stacked. With no
-  // image at all (e.g. a poster-less movie tile) "beside" would left-shove a
-  // lone label — stacked centers it, pure text at contract sizes.
+  // (big picture left, label right) on any tile wide enough; otherwise stacked.
+  // With no image at all (e.g. a poster-less movie tile) "beside" would
+  // left-shove a lone label — stacked centers it, pure text at contract sizes.
+  // The weather plate leads with a 45%-wide sun/cloud and the reading rides
+  // beside it, exactly like her tablet's plate (dad 9/2).
   const short = src != null &&
                 (btn.label || "").length <= CONFIG.BESIDE_MAX_CHARS &&
                 w >= CONFIG.BESIDE_MIN_W;
   el.classList.add("icon", short ? "beside" : "stacked");
+  if (isWeather) el.classList.add("weather");
+  let img = null;
   if (src) {
-    const img = document.createElement("img");
+    img = document.createElement("img");
     img.className = "tile-img contain";
     img.src = src; img.alt = "";
+    img.style.setProperty("--icon-w",
+      Math.round(100 * (isWeather ? CONFIG.WEATHER_ICON_SHARE : CONFIG.ICON_SHARE)) + "%");
     el.appendChild(img);
   }
   const lab = document.createElement("span");
@@ -328,9 +383,28 @@ function makeTile(btn, w, h, dwellMs) {
 
   const fit = () => {
     if (el.classList.contains("beside")) {
-      const f = applyFit(lab, [h - 36], startPx);
-      if (f >= CONFIG.FONT_FLOOR) return f;
-      // can't hold 74 beside: switch to stacked full-width, then refit.
+      const room = h - 24 - (isWeather ? 26 : 0);   // weather keeps its stamp line clear
+      const run = () => (isWeather ? applyWeatherFit(lab, room, startPx)
+                                   : applyFit(lab, [room], startPx));
+      let f = run();
+      if (!isWeather && f >= CONFIG.FONT_FLOOR) return f;
+      // dad 9/2: a longer word shrinks the LABEL, not the picture. The old rule
+      // bailed out to stacked right here — which is exactly what turned
+      // "Change bottoms"/"Bottoms"/"Dresses" into a speck above a word while
+      // "Change top" next to them showed a proper shirt. Under 74 is the
+      // renderer's marked, fit-impossible fallback (data-font-reduced): it
+      // happens on the small QA screens; the i13 has room for the contract font.
+      if (lab.scrollWidth <= lab.clientWidth + 1) return f;
+      // Only when the word will not fit even at the floor does the picture
+      // yield — a little (ICON_SHARE_MIN), never back to a speck.
+      if (img) {
+        img.style.setProperty("--icon-w", Math.round(100 * CONFIG.ICON_SHARE_MIN) + "%");
+        f = run();
+        if (lab.scrollWidth <= lab.clientWidth + 1) return f;
+        img.style.removeProperty("--icon-w");
+      }
+      // word integrity outranks layout: a word that cannot fit beside at any
+      // size falls back to the full-width stacked tile.
       el.classList.remove("beside");
       el.classList.add("stacked");
     }
@@ -390,16 +464,20 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // runtime content-tile hold from /settings (board.js clamps 600-3000).
   const contentDwellMs = (typeof dwellMs === "number" && isFinite(dwellMs))
     ? dwellMs : CONFIG.DWELL_DEFAULT;
-  const chips = []; // {label, image, symbol}
 
-  // chrome (built once — fixed heights => zero layout shift)
+  // chrome (built once — the strip's height is fixed per viewport => zero shift)
+  // dad 9/2, holding her tablet next to the board: "get rid of speak/clear we
+  // aren't using it. The header is still too big. The icon for the exit can be
+  // smaller. Items in the top corners are more easily accessible." So the bar
+  // is now a slim strip carrying ONE thing: the exit door, top-left. Speak,
+  // Clear and the chips strip that fed them are gone — no recipe the hub
+  // generates has ever set `bar:true`, so nothing loses a feature.
   mount.innerHTML = "";
   const bar = document.createElement("div");
   bar.className = "msgbar";
-  bar.style.height = CONFIG.BAR_H + "px";
   // top-left door back to TD Snap (dad 8/5, D47): SMALL bar chrome, not a grid
   // seat — same learned position, hold (2400ms) and silent round trip as the
-  // literacy apps' 🚪. Always armed (unlike Speak/Clear it needs no chips).
+  // literacy apps' 🚪. Always armed.
   const doorBtn = document.createElement("button");
   doorBtn.type = "button"; doorBtn.className = "bardoor dwell"; doorBtn.id = "barDoor";
   doorBtn.textContent = "🚪";
@@ -407,18 +485,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   doorBtn.dataset.dwellSay = "door";
   doorBtn.setAttribute("aria-label", "door");
   doorBtn.addEventListener("click", () => { sp.stop && sp.stop(); if (music) music.stop(); exitToTDSnap(); });
-  const chipsEl = document.createElement("div");
-  chipsEl.className = "chips";
-  const ctl = document.createElement("div");
-  ctl.className = "barctl";
-  const speakBtn = document.createElement("button");
-  speakBtn.type = "button"; speakBtn.className = "barbtn"; speakBtn.id = "barSpeak";
-  speakBtn.textContent = "Speak"; speakBtn.setAttribute("aria-label", "Speak");
-  const clearBtn = document.createElement("button");
-  clearBtn.type = "button"; clearBtn.className = "barbtn"; clearBtn.id = "barClear";
-  clearBtn.textContent = "Clear"; clearBtn.setAttribute("aria-label", "Clear");
-  ctl.appendChild(speakBtn); ctl.appendChild(clearBtn);
-  bar.appendChild(doorBtn); bar.appendChild(chipsEl); bar.appendChild(ctl);
+  bar.appendChild(doorBtn);
 
   const area = document.createElement("div");
   area.className = "board-area";
@@ -426,46 +493,23 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   mount.appendChild(bar);
   mount.appendChild(area);
 
-  // --- message bar behavior ---
-  function syncControls() {
-    const on = chips.length > 0;
-    for (const [btn, ms] of [[speakBtn, CONFIG.DWELL_SPEAK], [clearBtn, CONFIG.DWELL_CLEAR]]) {
-      if (on) {
-        btn.classList.add("dwell");
-        btn.dataset.dwellMs = String(ms);
-        btn.removeAttribute("aria-disabled");
-      } else {
-        // unusable => zero gaze targets: NOT .dwell, aria-disabled
-        btn.classList.remove("dwell");
-        btn.removeAttribute("data-dwell-ms");
-        btn.setAttribute("aria-disabled", "true");
-      }
-    }
+  // Size the strip and the door together. The door fills the bar's content
+  // height and is twice as wide as tall — deliberately smaller than the old
+  // 150x96 slab (dad 9/2: "the icon for the exit can be smaller"), which is
+  // this board's one sanctioned exception to the >=90px dwell-target law: a
+  // top corner is the easiest place on the screen to hit.
+  function sizeBar() {
+    const bh = barHeight(window.innerHeight);
+    bar.style.height = bh + "px";
+    // padding/border live in board.css — read them back rather than restate them
+    const cs = getComputedStyle(bar);
+    const px = (v) => parseFloat(v) || 0;
+    const inner = Math.max(24, bh - px(cs.paddingTop) - px(cs.paddingBottom)
+                              - px(cs.borderTopWidth) - px(cs.borderBottomWidth));
+    doorBtn.style.width = Math.round(2 * inner) + "px";
+    doorBtn.style.fontSize = Math.round(inner * 0.62) + "px";
+    return bh;
   }
-  function renderChip(chip) {
-    const c = document.createElement("div");
-    c.className = "chip";
-    const src = chip.image ? imageSrc(chip.image) : (chip.symbol ? symbolSrc(chip.symbol) : null);
-    if (src) { const img = document.createElement("img"); img.className = "chip-img"; img.src = src; img.alt = ""; c.appendChild(img); }
-    const s = document.createElement("span"); s.className = "chip-label"; s.textContent = chip.label || "";
-    c.appendChild(s);
-    chipsEl.appendChild(c);
-    // append right; if overflowing, scroll oldest off the left. Existing chips
-    // keep their DOM position — only the viewport scrolls.
-    chipsEl.scrollLeft = chipsEl.scrollWidth;
-  }
-  function appendChip(chip) { chips.push(chip); renderChip(chip); syncControls(); }
-  function clearBar() {
-    chips.length = 0; chipsEl.innerHTML = ""; syncControls();
-    sp.stop && sp.stop(); sp.say && sp.say("cleared");
-  }
-  function speakBar() {
-    if (!chips.length) return;
-    sp.stop && sp.stop();
-    sp.say && sp.say(chips.map((c) => c.label).join(" "));
-  }
-  speakBtn.addEventListener("click", () => { if (speakBtn.classList.contains("dwell")) speakBar(); });
-  clearBtn.addEventListener("click", () => { if (clearBtn.classList.contains("dwell")) clearBar(); });
 
   // outfit pick telemetry (Phase 2, D49): recipe buttons carrying `combo` report
   // select (outfit tile) / yes (confirm) — fire-and-forget, offline-queued.
@@ -606,8 +650,10 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
       if (r.speak != null) sp.say && sp.say(r.speak);
       render(); return;
     }
-    // append -> echo the single word (UX contract: "voice confirms everything").
-    if (r.append) { appendChip(r.append); sp.say && sp.say(btn.say != null ? btn.say : btn.label); return; }
+    // `bar:true` leaf: with the message bar reduced to the exit door (dad 9/2)
+    // there is nowhere to append, so it simply echoes the word — the UX
+    // contract's "voice confirms everything" still holds.
+    if (r.append) { sp.say && sp.say(btn.say != null ? btn.say : btn.label); return; }
     if (r.speak != null) { sp.say && sp.say(r.speak); }
   }
 
@@ -619,8 +665,10 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     area.innerHTML = "";
     if (!board) { area.textContent = ""; return; }
 
+    // the slimmer bar hands its old height back to the GRID (dad 9/2: the
+    // tiles grow, the gaps do not — GAP stays at the contract floor).
     const availW = window.innerWidth - 2 * CONFIG.SIDE_PAD;
-    const availH = window.innerHeight - CONFIG.BAR_H - 2 * CONFIG.V_PAD;
+    const availH = window.innerHeight - sizeBar() - 2 * CONFIG.V_PAD;
     const { rows, cols, slots } = layoutCells(board);
     const { w, h, gap } = gridFit(rows, cols, availW, availH);
 
@@ -658,7 +706,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     applyWatching();                            // .watching survives page nav too
   }
 
-  syncControls();
   render();
   let rt = null;
   window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 120); });
@@ -666,10 +713,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   return {
     render,
     session,
-    appendChip,
-    clearBar,
-    speakBar,
-    get chips() { return chips.slice(); },
     // deep-link/testing hook: jump to a board id then render.
     show(id) { session.navigate(id); render(); return session.current; },
     home() { session.home(); render(); },

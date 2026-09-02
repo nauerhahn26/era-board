@@ -1,10 +1,12 @@
 // GATE 1 — pixel-audit invariants ported to /board/ (T1.2/T1.3 visual gate).
 // Launches headless chromium against the LIVE server (read-only) at both
 // 1920x1080 and 1280x720, over board states [root, a confirm_N, a cat_N,
-// bar-with-3-chips]. Invariants: no .dwell target offscreen/occluded (center
+// build]. Invariants: no .dwell target offscreen/occluded (center
 // elementFromPoint returns the target), no horizontal scroll, min inter-target
 // gap >= 28px (pairs <34px are warnings), labels never overflow horizontally,
-// computed label font-size >= 74px, chrome never wins a tile's center pixel.
+// computed label font-size >= 74px, chrome never wins a tile's center pixel,
+// and (dad 9/2) the message bar is a <=9% strip holding only the exit door
+// while every pictogram tile shows a real picture, not a speck.
 // Runs under `node --test` or `node tests/board-pixel.test.mjs`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -17,18 +19,14 @@ const SHOTS = fileURLToPath(new URL("./board-shots/", import.meta.url));
 fs.mkdirSync(SHOTS, { recursive: true });
 
 const VIEWPORTS = [{ w: 1920, h: 1080 }, { w: 1280, h: 720 }];
+// The old fourth state drove three message-bar chips; Speak/Clear and the chips
+// strip that fed them are gone (dad 9/2), so the categories page she actually
+// reaches from "Build my own" takes that slot instead.
 const STATES = [
   { name: "root", setup: async (p) => {} },
   { name: "confirm_2", setup: async (p) => { await p.evaluate(() => window.Board.show("confirm_2")); } },
   { name: "cat_top", setup: async (p) => { await p.evaluate(() => window.Board.show("cat_top")); } },
-  { name: "bar-3-chips", setup: async (p) => {
-      await p.evaluate(() => {
-        window.Board.show("cat_top");
-        window.Board.appendChip({ label: "Rainbow tee", image: "wardrobe/images/item_074b60ce51.jpg" });
-        window.Board.appendChip({ label: "Mint shorts", image: "wardrobe/images/item_8fe9749252.jpg" });
-        window.Board.appendChip({ label: "Yes", symbol: "yes" });
-      });
-    } },
+  { name: "build", setup: async (p) => { await p.evaluate(() => window.Board.show("build")); } },
 ];
 
 function MEASURE() {
@@ -73,7 +71,7 @@ function MEASURE() {
   //  - no horizontal overflow (a whole word never exceeds its line box)
   //  - no vertical clipping (label rect fully inside its tile)
   const labelOverflow = [], fontViolations = [], breakRules = [], clipped = [], subFloor = [];
-  for (const el of document.querySelectorAll(".tile-label,.chip-label")) {
+  for (const el of document.querySelectorAll(".tile-label")) {
     if (!vis(el)) continue;
     const t = (el.textContent || "").trim().slice(0, 20);
     const cs = getComputedStyle(el);
@@ -100,6 +98,12 @@ function MEASURE() {
       // photo-tile plate: SMALL BY DESIGN (dad 7/24 — the photo is the
       // message). Own floor only; exempt from the 74px text-tile floor.
       if (fs < 24 - 0.5) fontViolations.push({ t, fs: +fs.toFixed(1), photo: 1 });
+    } else if (el.closest(".tile.weather")) {
+      // weather plate: dad's EXPLICIT exception, 9/2 — "weather text is too big
+      // cannot see sunny/cloudy image". The sun/cloud is the message and the
+      // reading rides beside it, so this one label has its own smaller floor
+      // (WEATHER_FONT_MIN) exactly like a photo tile's plate.
+      if (fs < 36 - 0.5) fontViolations.push({ t, fs: +fs.toFixed(1), weather: 1 });
     } else if (fs < 44 - 0.5) fontViolations.push({ t, fs: +fs.toFixed(1) });          // absolute floor
     else if (fs < 74 - 0.5) {
       // <74 tolerated ONLY as the renderer's marked, fit-impossible fallback
@@ -119,6 +123,26 @@ function MEASURE() {
     const t = ((tile.querySelector(".tile-label") || {}).textContent || "").trim().slice(0, 20);
     photoShares.push({ t, share: +share.toFixed(2) });
   }
+  // SLIM BAR (dad 9/2 "the header is still too big"): the message bar is a
+  // strip, never more than 9% of the screen, and it carries the exit door and
+  // nothing else — no Speak, no Clear, no chips.
+  const barEl = document.querySelector(".msgbar");
+  const barPct = barEl ? +((barEl.getBoundingClientRect().height / vh) * 100).toFixed(1) : null;
+  const barExtras = barEl ? [...barEl.children].map((el) => el.id || String(el.className))
+                                               .filter((n) => n !== "barDoor") : [];
+  // BIG PICTURES (dad 9/2 "change bottoms image for bottoms is too small"):
+  // every pictogram tile shows a real picture, never a speck above the word.
+  const iconSqueezed = [];
+  for (const tile of document.querySelectorAll(".tile.icon")) {
+    if (!vis(tile)) continue;
+    const img = tile.querySelector(".tile-img");
+    if (!img || !vis(img)) continue;
+    const tr = tile.getBoundingClientRect(), ir = img.getBoundingClientRect();
+    const wShare = ir.width / tr.width, hShare = ir.height / tr.height;
+    const t = ((tile.querySelector(".tile-label") || {}).textContent || "").trim().slice(0, 20);
+    if (wShare < 0.20 || hShare < 0.20)
+      iconSqueezed.push({ t, w: +wShare.toFixed(2), h: +hShare.toFixed(2) });
+  }
   // FILL (Gate-1 "use the screen"): the grid must span the available width.
   let fillPct = null;
   const cells = [...document.querySelectorAll(".board-area .cell")].filter(vis);
@@ -131,7 +155,8 @@ function MEASURE() {
   return { vw, vh, nTargets: rects.length, offscreen, hscroll, occluded, chromeWins,
     minGap: rects.length > 1 ? +minGap.toFixed(1) : null, minPair,
     warnCount: warns.length, warns: warns.slice(0, 6),
-    labelOverflow, fontViolations, breakRules, clipped, subFloor, fillPct, photoShares };
+    labelOverflow, fontViolations, breakRules, clipped, subFloor, fillPct, photoShares,
+    barPct, barExtras, iconSqueezed };
 }
 
 test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
@@ -180,6 +205,10 @@ test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
         const shareFloor = vp.w >= 1920 ? 0.72 : 0.60;
         const squeezed = (m.photoShares || []).filter(p => p.share < shareFloor);
         if (squeezed.length) violations.push(`${tag} PHOTO_SQUEEZED ${JSON.stringify(squeezed)}`);
+        // dad 9/2: slim bar, door only, and a real picture on every icon tile
+        if (m.barPct != null && m.barPct > 9.1) violations.push(`${tag} BAR_TOO_TALL ${m.barPct}%`);
+        if (m.barExtras.length) violations.push(`${tag} BAR_EXTRAS ${JSON.stringify(m.barExtras)}`);
+        if (m.iconSqueezed.length) violations.push(`${tag} ICON_SQUEEZED ${JSON.stringify(m.iconSqueezed)}`);
       }
       await ctx.close();
     }
