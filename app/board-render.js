@@ -33,7 +33,11 @@ export const CONFIG = {
   PHOTO_PLATE_MIN: EC.sizes.photoPlateMin, // px — small viewports still get a legible strip
   PHOTO_FONT_CAP: EC.sizes.photoFontCap,
   PHOTO_FONT_MIN: EC.sizes.photoFontMin,
-  BESIDE_MAX_CHARS: 14,
+  // 14 left "Change bottoms" (15) stacked, where its two-line label crushed the
+  // trousers picture to a speck on EVERY screen size while "Change top" beside
+  // it showed a proper shirt (QA 9/2). Beside gives a wrapping label both a
+  // real picture and its contract font; stacked can only give one.
+  BESIDE_MAX_CHARS: 16,
   BESIDE_MIN_W: 430, // beside layout only on tiles wide enough for a 74px label
                      // (520 pushed a 13" 1920-wide board into stacked, shrinking icons)
   // Dwell holds (ms) — T2.1. Content tiles (speak/append leaves) use the runtime
