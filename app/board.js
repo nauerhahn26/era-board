@@ -204,13 +204,15 @@ function startWatcher(state) {
   return { checkNow: tick };
 }
 
-// Wardrobe footer + partner "new outfits" button (clothing board only).
-// Dad 9/3: "I added some photos after my first run - maybe a footer pops up
-// notifying new photos found and are processing, and if not automatically
-// triggered I can re-run today's outfits with the new ones." The hub notices
-// new photos by itself (Drive sync -> rebuild); this makes that visible while
-// the board is open, and gives the grown-up a button that does it NOW.
-function startWardrobeWatch(watcher, bar) {
+// Wardrobe footer (clothing board only). Dad 9/3: "I added some photos
+// after my first run - maybe a footer pops up notifying new photos found and
+// are processing, and if not automatically triggered I can re-run today's
+// outfits with the new ones." The hub notices new photos by itself (Drive
+// sync -> rebuild); this makes that visible while the board is open. The
+// grown-up's "do it NOW" lives in Settings (Sync now / Rebuild today's
+// outfits) - the board's bar carries the door and nothing else (design rule,
+// gate: board-input + board-pixel).
+function startWardrobeWatch(watcher) {
   if (RECIPE_NAME !== "today") return;
   const note = document.getElementById("wardrobeNote");
   if (!note) return;
@@ -220,22 +222,7 @@ function startWardrobeWatch(watcher, bar) {
   const hide = () => { note.classList.remove("show", "ready"); };
   note.addEventListener("click", () => { if (note.classList.contains("ready")) location.reload(); });
 
-  let btn = null;
-  if (bar) {
-    btn = document.createElement("button");
-    btn.type = "button"; btn.className = "barrefresh"; btn.id = "barRefresh";
-    btn.textContent = "\u21BB new outfits";
-    btn.title = "Look for new clothing photos and build today\u2019s outfits again";
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      show("Looking for new clothing photos\u2026");
-      asked = Date.now();
-      try { await fetch("/clothing/regenerate", { method: "POST" }); } catch { /* status poll reports */ }
-    });
-    bar.appendChild(btn);
-  }
-
-  let wasBusy = false, asked = 0, readyShown = false;
+  let wasBusy = false, readyShown = false;
   async function poll() {
     let s = null;
     try { s = await (await fetch("/clothing/status", { cache: "no-store" })).json(); } catch { /* keep the current text */ }
@@ -253,17 +240,10 @@ function startWardrobeWatch(watcher, bar) {
         const changed = await watcher.checkNow();
         if (changed) { show("\u2728 New outfits are ready \u2014 tap here to see them", true); readyShown = true; }
         else hide();
-        if (btn) btn.disabled = false;
-      } else if (!busy && asked && Date.now() - asked > 20000) {
-        // the button was pressed and nothing started: no new photos to add
-        asked = 0; if (btn) btn.disabled = false;
-        if (!readyShown) show("No new clothing photos yet \u2014 add them to the clothing folder in Google Drive.");
-        setTimeout(() => { if (!note.classList.contains("ready")) hide(); }, 8000);
-      } else if (!busy && !readyShown && !asked) hide();
-      if (busy) asked = 0;
+      } else if (!busy && !readyShown) hide();
       wasBusy = busy;
     }
-    setTimeout(poll, wasBusy || asked ? T.busyMs : T.statusMs);
+    setTimeout(poll, wasBusy ? T.busyMs : T.statusMs);
   }
   poll();
 }
@@ -331,7 +311,7 @@ async function boot() {
   }
   window.dispatchEvent(new CustomEvent("board:ready"));
   const watcher = startWatcher({ etag: r.etag, offline: r.offline });
-  startWardrobeWatch(watcher, app.querySelector(".msgbar"));
+  startWardrobeWatch(watcher);
 }
 
 boot().catch((err) => {
