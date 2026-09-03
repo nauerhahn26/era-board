@@ -18,7 +18,7 @@ import { chromium } from "playwright";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO = path.resolve(__dirname, "..");
 const BASE = "http://localhost:8377/board/";
-const PORT = 8394; // never live 8378; sibling suites hold 8390-8393, 8397...
+const PORT = 8407; // never live 8377; 8390-8424 minus this one are held by sibling suites (8394 = pool)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test("footer follows the wardrobe work; the button asks the hub for new outfits", async () => {
