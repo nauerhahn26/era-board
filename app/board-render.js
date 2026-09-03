@@ -117,6 +117,46 @@ function exitToTDSnap() {
     .catch(() => { close(); location.href = "/home/"; });   // no engine: back to the hub
 }
 
+// The strip across the top carrying ONE thing: the door back to TD Snap,
+// top-left (dad 8/5, D47) — SMALL bar chrome, not a grid seat; same learned
+// position, hold (2400ms) and silent round trip as the literacy apps' 🚪.
+// Always armed, and mounted by the SPLASH too: while the clothing picker is
+// still naming photos there was no door at all, so a gaze user had no way
+// back to New ERA (dad 9/3). `onLeave` runs before the exit (stop speech/music).
+export function mountDoorBar(mount, onLeave) {
+  const bar = document.createElement("div");
+  bar.className = "msgbar";
+  const doorBtn = document.createElement("button");
+  doorBtn.type = "button"; doorBtn.className = "bardoor dwell"; doorBtn.id = "barDoor";
+  doorBtn.textContent = "🚪";
+  doorBtn.dataset.dwellMs = String(CONFIG.DWELL_EXIT);
+  doorBtn.dataset.dwellSay = "door";
+  doorBtn.setAttribute("aria-label", "door");
+  doorBtn.addEventListener("click", () => { if (onLeave) onLeave(); exitToTDSnap(); });
+  bar.appendChild(doorBtn);
+  mount.appendChild(bar);
+
+  // Size the strip and the door together. The door fills the bar's content
+  // height and is twice as wide as tall — deliberately smaller than the old
+  // 150x96 slab (dad 9/2: "the icon for the exit can be smaller"), which is
+  // this board's one sanctioned exception to the >=90px dwell-target law: a
+  // top corner is the easiest place on the screen to hit.
+  function sizeBar() {
+    const bh = barHeight(window.innerHeight);
+    bar.style.height = bh + "px";
+    // padding/border live in board.css — read them back rather than restate them
+    const cs = getComputedStyle(bar);
+    const px = (v) => parseFloat(v) || 0;
+    const inner = Math.max(24, bh - px(cs.paddingTop) - px(cs.paddingBottom)
+                              - px(cs.borderTopWidth) - px(cs.borderBottomWidth));
+    doorBtn.style.width = Math.round(2 * inner) + "px";
+    doorBtn.style.fontSize = Math.round(inner * 0.62) + "px";
+    return bh;
+  }
+  sizeBar();
+  return { bar, doorBtn, sizeBar };
+}
+
 // A "door" navigates the board (btn.load) or is a structural nav type. Doors get
 // the deliberate hold; everything else (outfit/clothing/yes/word/control-speak
 // leaves) is a content tile on the runtime dwellMs.
@@ -473,43 +513,11 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // Clear and the chips strip that fed them are gone — no recipe the hub
   // generates has ever set `bar:true`, so nothing loses a feature.
   mount.innerHTML = "";
-  const bar = document.createElement("div");
-  bar.className = "msgbar";
-  // top-left door back to TD Snap (dad 8/5, D47): SMALL bar chrome, not a grid
-  // seat — same learned position, hold (2400ms) and silent round trip as the
-  // literacy apps' 🚪. Always armed.
-  const doorBtn = document.createElement("button");
-  doorBtn.type = "button"; doorBtn.className = "bardoor dwell"; doorBtn.id = "barDoor";
-  doorBtn.textContent = "🚪";
-  doorBtn.dataset.dwellMs = String(CONFIG.DWELL_EXIT);
-  doorBtn.dataset.dwellSay = "door";
-  doorBtn.setAttribute("aria-label", "door");
-  doorBtn.addEventListener("click", () => { sp.stop && sp.stop(); if (music) music.stop(); exitToTDSnap(); });
-  bar.appendChild(doorBtn);
+  const { sizeBar } = mountDoorBar(mount, () => { sp.stop && sp.stop(); if (music) music.stop(); });
 
   const area = document.createElement("div");
   area.className = "board-area";
-
-  mount.appendChild(bar);
   mount.appendChild(area);
-
-  // Size the strip and the door together. The door fills the bar's content
-  // height and is twice as wide as tall — deliberately smaller than the old
-  // 150x96 slab (dad 9/2: "the icon for the exit can be smaller"), which is
-  // this board's one sanctioned exception to the >=90px dwell-target law: a
-  // top corner is the easiest place on the screen to hit.
-  function sizeBar() {
-    const bh = barHeight(window.innerHeight);
-    bar.style.height = bh + "px";
-    // padding/border live in board.css — read them back rather than restate them
-    const cs = getComputedStyle(bar);
-    const px = (v) => parseFloat(v) || 0;
-    const inner = Math.max(24, bh - px(cs.paddingTop) - px(cs.paddingBottom)
-                              - px(cs.borderTopWidth) - px(cs.borderBottomWidth));
-    doorBtn.style.width = Math.round(2 * inner) + "px";
-    doorBtn.style.fontSize = Math.round(inner * 0.62) + "px";
-    return bh;
-  }
 
   // outfit pick telemetry (Phase 2, D49): recipe buttons carrying `combo` report
   // select (outfit tile) / yes (confirm) — fire-and-forget, offline-queued.

@@ -3,7 +3,7 @@
 // dwell.js drives gaze holds via class="dwell", a touch tap fires click() — one
 // click handler covers both input paths.
 import { createSession } from "./board-model.js";
-import { mountBoard } from "./board-render.js";
+import { mountBoard, mountDoorBar } from "./board-render.js";
 import { createMusicPlayer } from "./music-player.js";
 
 const baseSpeech = window.Speech || {
@@ -101,13 +101,17 @@ async function loadRecipe() {
 // /clothing/status tells us which state the family is in.
 function showSplash(app) {
   app.innerHTML = "";
+  // The same door strip the board itself wears: a splash that can last minutes
+  // (naming 40 photos) is still a screen she must be able to leave (dad 9/3).
+  const { sizeBar } = mountDoorBar(app, () => speech.stop && speech.stop());
+  window.addEventListener("resize", sizeBar);
   const d = document.createElement("div");
   d.className = "splash";
   d.textContent = "Your board is waking up…";
   app.appendChild(d);
   if (recipeMiss !== "no-content") return;
   const h = document.createElement("a");
-  h.className = "splash";
+  h.className = "splash-note";
   // 0.55em of the giant splash headline rendered as fine print a parent could
   // not read across the room (QA 9/1). Fixed, generous px instead.
   h.style.cssText = "font-size:34px;line-height:1.35;display:block;max-width:22em;margin:28px auto 0;text-decoration:underline;cursor:pointer";

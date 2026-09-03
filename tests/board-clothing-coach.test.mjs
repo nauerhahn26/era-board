@@ -26,7 +26,7 @@ async function makePage(browser, statusBody) {
 }
 
 const splashText = (page) => page.evaluate(() =>
-  Array.from(document.querySelectorAll(".splash")).map(e => e.textContent).join(" | "));
+  Array.from(document.querySelectorAll(".splash, .splash-note")).map(e => e.textContent).join(" | "));
 
 test("photos + no key: celebrates the upload and deep-links the AI step", async () => {
   const browser = await chromium.launch();
