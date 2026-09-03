@@ -52,7 +52,7 @@ const KEY_SUFFIX = RECIPE_NAME === "today" ? "" : ":" + RECIPE_NAME;
 const LS_RECIPE = "board:lastRecipe" + KEY_SUFFIX;
 const LS_ETAG = "board:lastRecipeEtag" + KEY_SUFFIX;
 const T = Object.assign(
-  { pollMs: 5 * 60 * 1000, retryMs: 15 * 1000, idleMs: 60 * 1000 },
+  { pollMs: 5 * 60 * 1000, retryMs: 15 * 1000, idleMs: 60 * 1000, statusMs: 15 * 1000, busyMs: 3000 },
   window.__boardTest || {},
 );
 
@@ -183,8 +183,10 @@ function startWatcher(state) {
   const setNet = (on) => { if (net) net.classList.toggle("show", on); };
   setNet(state.offline);
   let pending = false; // a newer recipe exists, waiting for idle
+  let timer = null;
 
   async function tick() {
+    clearTimeout(timer);
     try {
       const res = await fetch(RECIPE_URL, { method: "HEAD", cache: "no-store" });
       if (!res.ok) throw new Error("head " + res.status);
@@ -195,9 +197,75 @@ function startWatcher(state) {
     } catch {
       if (!state.offline) { state.offline = true; setNet(true); }
     }
-    setTimeout(tick, state.offline || pending ? T.retryMs : T.pollMs);
+    timer = setTimeout(tick, state.offline || pending ? T.retryMs : T.pollMs);
+    return pending;
   }
-  setTimeout(tick, state.offline ? T.retryMs : T.pollMs);
+  timer = setTimeout(tick, state.offline ? T.retryMs : T.pollMs);
+  return { checkNow: tick };
+}
+
+// Wardrobe footer + partner "new outfits" button (clothing board only).
+// Dad 9/3: "I added some photos after my first run - maybe a footer pops up
+// notifying new photos found and are processing, and if not automatically
+// triggered I can re-run today's outfits with the new ones." The hub notices
+// new photos by itself (Drive sync -> rebuild); this makes that visible while
+// the board is open, and gives the grown-up a button that does it NOW.
+function startWardrobeWatch(watcher, bar) {
+  if (RECIPE_NAME !== "today") return;
+  const note = document.getElementById("wardrobeNote");
+  if (!note) return;
+  const show = (text, ready) => {
+    note.textContent = text; note.classList.add("show"); note.classList.toggle("ready", !!ready);
+  };
+  const hide = () => { note.classList.remove("show", "ready"); };
+  note.addEventListener("click", () => { if (note.classList.contains("ready")) location.reload(); });
+
+  let btn = null;
+  if (bar) {
+    btn = document.createElement("button");
+    btn.type = "button"; btn.className = "barrefresh"; btn.id = "barRefresh";
+    btn.textContent = "\u21BB new outfits";
+    btn.title = "Look for new clothing photos and build today\u2019s outfits again";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      show("Looking for new clothing photos\u2026");
+      asked = Date.now();
+      try { await fetch("/clothing/regenerate", { method: "POST" }); } catch { /* status poll reports */ }
+    });
+    bar.appendChild(btn);
+  }
+
+  let wasBusy = false, asked = 0, readyShown = false;
+  async function poll() {
+    let s = null;
+    try { s = await (await fetch("/clothing/status", { cache: "no-store" })).json(); } catch { /* keep the current text */ }
+    if (s) {
+      const busy = !!(s.building || (s.ingesting && s.ingesting.total));
+      if (s.ingesting && s.ingesting.total) {
+        show("\uD83D\uDC55 New clothing photos found \u2014 adding photo " +
+             Math.min(s.ingesting.done + 1, s.ingesting.total) + " of " + s.ingesting.total +
+             ". New outfits come by themselves.");
+      } else if (s.building) {
+        show("\uD83D\uDC55 Putting today\u2019s outfits together\u2026");
+      }
+      if (wasBusy && !busy) {
+        // a build just finished: is the board on screen the new one?
+        const changed = await watcher.checkNow();
+        if (changed) { show("\u2728 New outfits are ready \u2014 tap here to see them", true); readyShown = true; }
+        else hide();
+        if (btn) btn.disabled = false;
+      } else if (!busy && asked && Date.now() - asked > 20000) {
+        // the button was pressed and nothing started: no new photos to add
+        asked = 0; if (btn) btn.disabled = false;
+        if (!readyShown) show("No new clothing photos yet \u2014 add them to the clothing folder in Google Drive.");
+        setTimeout(() => { if (!note.classList.contains("ready")) hide(); }, 8000);
+      } else if (!busy && !readyShown && !asked) hide();
+      if (busy) asked = 0;
+      wasBusy = busy;
+    }
+    setTimeout(poll, wasBusy || asked ? T.busyMs : T.statusMs);
+  }
+  poll();
 }
 
 async function boot() {
@@ -262,7 +330,8 @@ async function boot() {
     music.prefetch(allButtons); // background: after this, songs survive offline
   }
   window.dispatchEvent(new CustomEvent("board:ready"));
-  startWatcher({ etag: r.etag, offline: r.offline });
+  const watcher = startWatcher({ etag: r.etag, offline: r.offline });
+  startWardrobeWatch(watcher, app.querySelector(".msgbar"));
 }
 
 boot().catch((err) => {

@@ -122,6 +122,23 @@ body{background:var(--paper); color:var(--ink);
          font-family:var(--font)}
 #netWarn.show{display:block}
 
+/* ---- wardrobe footer (dad 9/3: "I added photos after my first run - a
+   footer that says new photos were found and are processing"). Same partner
+   strip as the warn banners, teal so it reads "working" not "wrong"; sits
+   above ttsWarn's slot. Touch only, NOT .dwell - "tap to see them" is for the
+   grown-up; the watcher reloads for her once she is idle anyway. ---- */
+#wardrobeNote{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:70; font-family:var(--font)}
+#wardrobeNote.show{display:block}
+#wardrobeNote.ready{cursor:pointer; background:#1F6F3A}
+#ttsWarn.show ~ #wardrobeNote.show{bottom:60px}
+/* partner "new outfits" button at the bar's right end (touch, NOT .dwell) */
+.barrefresh{flex:0 0 auto; margin-left:auto; border:none; border-radius:12px; padding:0 18px;
+         cursor:pointer; font-family:var(--font); font-weight:600; font-size:20px;
+         background:transparent; color:var(--bar-ink); opacity:.75; border:2px solid currentColor}
+.barrefresh:disabled{opacity:.4; cursor:default}
+
 /* ---- boot splash (T3.3) — nothing-to-show case; static text under the same
    door strip the board wears (the one dwell target on it, dad 9/3) */
 .splash{flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
