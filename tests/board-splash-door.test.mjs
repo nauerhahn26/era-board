@@ -2,8 +2,8 @@
 // "While the clothing picker is building it should still have the door exit,
 // otherwise no way to return back to New ERA." The splash used to carry zero
 // dwell targets for the minutes a 40-photo ingest takes; now it wears the same
-// door strip the board does, and the door's fallback (no engine) lands on
-// /home/. Network-stubbed like the coach suite; drives the live server.
+// door strip the board does, and the door's fallback (no engine, or New ERA
+// chosen in Settings) lands on /home/. Network-stubbed like the coach suite; drives the live server.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -18,7 +18,8 @@ async function makePage(browser) {
   await ctx.route("**/recipes/today.json", (r) => r.fulfill({ status: 404, body: "not found" }));
   await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json",
     body: JSON.stringify({ building: false, ingesting: { done: 3, total: 40 }, cataloged: 3, photos: 40, aiConfigured: true }) }));
-  await ctx.route("**/kiosk/close", (r) => r.fulfill({ status: 204, body: "" }));
+  // /kiosk/exit is NOT stubbed: the live hub answers {action:"home"} on a box
+  // with no engine, which is exactly the fallback this suite is about.
   await ctx.route("http://127.0.0.1:49155/**", (r) => r.abort());   // no engine on a test box
   const page = await ctx.newPage();
   await page.addInitScript(() => { try { localStorage.clear(); } catch {} });

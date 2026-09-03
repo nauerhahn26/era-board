@@ -107,14 +107,13 @@ const EXIT_TYPE = "exit";
 // The kiosk origin ($ServerUrl/board/) is pre-allowed for 127.0.0.1 calls by the
 // installer's Chrome LNA policies (windows-device.ps1 step 2b) — no Allow prompt.
 function exitToTDSnap() {
-  // Two jobs: hand the screen back to TD Snap (only ERAgaze can) AND close this
-  // kiosk. An engine compiled before 9/1 did the first and skipped the second,
-  // leaving the app running behind TD Snap (dad 9/1) — so the hub, which is
-  // always present, closes the window itself.
-  const close = () => fetch("/kiosk/close", { method: "POST" }).catch(() => {});
-  fetch("http://127.0.0.1:49155/app/exit", { method: "POST" })
-    .then((r) => { close(); if (!r.ok) location.href = "/home/"; })
-    .catch(() => { close(); location.href = "/home/"; });   // no engine: back to the hub
+  // The hub decides where the door goes (Settings, dad 9/3: TD Snap or New
+  // ERA) and does the engine hand-off + kiosk close itself. "closed" = the
+  // screen is being handed over; anything else = the hub's home, here.
+  fetch("/kiosk/exit", { method: "POST" })
+    .then((r) => r.json())
+    .then((j) => { if (j.action !== "closed") location.href = "/home/"; })
+    .catch(() => { location.href = "/home/"; });   // no hub answer: back to the hub
 }
 
 // The strip across the top carrying ONE thing: the door back to TD Snap,

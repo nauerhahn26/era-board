@@ -236,8 +236,8 @@ test("what-next board: deep link, four choices — next launches, something-else
   const browser = await chromium.launch();
   try {
     const { ctx, page, launches } = await makePage(browser);
-    let exitHits = 0;
-    await ctx.route("http://127.0.0.1:49155/app/exit", (r) => { exitHits++; r.fulfill({ status: 200, body: "" }); });
+    let exitHits = 0;   // the hub's exit choke point (it talks to ERAgaze itself)
+    await ctx.route("**/kiosk/exit", (r) => { exitHits++; r.fulfill({ status: 200, contentType: "application/json", body: '{"action":"closed"}' }); });
 
     // the ?board= anchor (spec §5): ERAgaze reveals the picker on the show's
     // what-next page after an episode ends.
@@ -274,9 +274,9 @@ test("what-next board: deep link, four choices — next launches, something-else
     await resetLog(page);
     await exitTile.click();
     await page.waitForTimeout(200);
-    assert.equal(exitHits, 1, "all-done POSTs /app/exit exactly once");
+    assert.equal(exitHits, 1, "all-done POSTs /kiosk/exit exactly once");
     assert.deepEqual(await log(page), [{ call: "stop" }], "exit is silent");
-    assert.ok(await page.evaluate(() => !!window.Board), "no fallback reload on a 200 exit");
+    assert.ok(await page.evaluate(() => !!window.Board), "no fallback navigation on a closed exit");
     await ctx.close();
   } finally { await browser.close(); }
 });

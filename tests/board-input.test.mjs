@@ -186,10 +186,11 @@ test("msgbar door (top-left, D47): always armed, 2400ms hold, silent POST /app/e
   const browser = await chromium.launch();
   try {
     const { ctx, page } = await makePage(browser, { touch: true });
-    // ERAgaze isn't running in CI: intercept the exit endpoint so the wiring is
-    // provable AND the r.ok path (no fallback reload) is exercised.
+    // The hub owns the exit (Settings: TD Snap or New ERA, dad 9/3) and talks
+    // to ERAgaze itself. Intercept the hub's choke point so the wiring is
+    // provable AND the "closed" path (no fallback navigation) is exercised.
     let exitHits = 0;
-    await ctx.route("http://127.0.0.1:49155/app/exit", (r) => { exitHits++; r.fulfill({ status: 200, body: "" }); });
+    await ctx.route("**/kiosk/exit", (r) => { exitHits++; r.fulfill({ status: 200, contentType: "application/json", body: '{"action":"closed"}' }); });
 
     const door = page.locator("#barDoor");
     // placement + arming: leftmost bar element, always a live dwell target
@@ -212,11 +213,11 @@ test("msgbar door (top-left, D47): always armed, 2400ms hold, silent POST /app/e
     await door.tap();
     await page.waitForFunction(() => true); // flush microtasks
     await page.waitForTimeout(150);
-    assert.equal(exitHits, 1, "door POSTs /app/exit exactly once");
+    assert.equal(exitHits, 1, "door POSTs /kiosk/exit exactly once");
     assert.deepEqual(await log(page), [{ call: "stop" }], "door is silent (barge-in stop only)");
-    // 200 response -> kiosk teardown is ERAgaze's job; the page must NOT reload.
+    // "closed" -> the hub is tearing the kiosk down; the page must NOT navigate.
     const alive = await page.evaluate(() => window.Board && window.__speechLog.length === 1);
-    assert.ok(alive, "no fallback reload on a 200 exit");
+    assert.ok(alive, "no fallback navigation on a closed exit");
     await ctx.close();
   } finally { await browser.close(); }
 });
