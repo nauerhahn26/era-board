@@ -133,7 +133,6 @@ body{background:var(--paper); color:var(--ink);
 #wardrobeNote.show{display:block}
 #wardrobeNote.ready{cursor:pointer; background:#1F6F3A}
 #ttsWarn.show ~ #wardrobeNote.show{bottom:60px}
-/* partner "new outfits" button at the bar's right end (touch, NOT .dwell) */
 
 /* ---- boot splash (T3.3) — nothing-to-show case; static text under the same
    door strip the board wears (the one dwell target on it, dad 9/3) */
