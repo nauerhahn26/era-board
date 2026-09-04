@@ -93,6 +93,54 @@ async function loadRecipe() {
   }
 }
 
+// ---- book jobs (T2.11) -----------------------------------------------------
+// A book is built out of photos a grown-up dropped in Drive: minutes of reading
+// words off pages and recording narration, during which the board looks exactly
+// the same as it did before. /content/status makes the same deal
+// /clothing/status does, so the board says the same kind of thing about it —
+// on the splash while there is nothing else to show, and in the footer strip
+// once the board is up. Touch only, never a gaze target: this is grown-up news
+// (design rule — the message bar carries the door and nothing else).
+const REVIEW_URL = "/book-review/?slug=";
+
+// One /content/status payload -> the one sentence the board should be showing,
+// or null for "nothing worth saying". Shared by the splash and the footer so a
+// book reads the same wherever it is seen. `watched` is the slug the caller has
+// seen building, so a book that landed before the board opened is old news and
+// stays quiet.
+function bookNews(c, watched) {
+  // mode !== local: books are built on the computer that holds the Drive
+  // folder, and this one does not — Settings explains that, the board doesn't.
+  if (!c || !c.local) return null;
+  const jobs = c.jobs || [];
+  const find = (slug) => jobs.filter((j) => j && j.slug === slug)[0] || null;
+  if (c.building && c.job && c.job.kind === "books") {
+    const j = find(c.job.slug) || {};
+    const title = j.title || "a new book";
+    const p = j.progress || {};
+    // Count the page being worked on, not the ones finished: "page 5 of 12"
+    // is what a parent watching over a shoulder sees on the table.
+    const at = (done) => " — page " + Math.min((done || 0) + 1, p.pages) + " of " + p.pages;
+    const step = c.job.step || j.step;
+    let what = "Making " + title;
+    if (step === "transcribe" && p.pages) what = "Reading the words of " + title + at(p.transcribed);
+    else if (step === "narrate" && p.pages) what = "Recording " + title + at(p.narrated);
+    return { busy: true, head: "Making a new book…",
+             text: "📖 " + what + ". It appears in Book Reader by itself." };
+  }
+  const j = watched ? find(watched) : null;
+  if (!j || !(j.published || j.state === "done")) return null;
+  const title = j.title || "Your new book";
+  // Flagged words publish anyway (ruling 9/4) — the book is readable now, and
+  // the review page is where a grown-up fixes what the AI was unsure of.
+  if (j.flags) return {
+    busy: false,
+    text: "✨ " + title + " is ready to read — " + j.flags + " word" +
+          (j.flags === 1 ? "" : "s") + " the AI was unsure of.",
+    href: REVIEW_URL + encodeURIComponent(j.slug), tap: "Check them →" };
+  return { busy: false, text: "✨ " + title + " is ready to read in Book Reader." };
+}
+
 // Calm full-screen splash for the nothing-to-show case (first boot + server
 // down). Static text, no targets — dwell has nothing to catch on.
 // For the CLOTHING board the no-content state is a live coach (dad 8/31: a
@@ -120,8 +168,13 @@ function showSplash(app) {
   app.appendChild(h);
   if (RECIPE_NAME !== "today") return;   // coaching below is clothing-only
 
+  // `said` = a clothing state claimed the splash. The clothing coach keeps
+  // every word it had; a book only gets the line in the one case where the
+  // coach has nothing of its own to say (T2.11).
+  let said = false;
   const paint = (s) => {
     if (!s) return;
+    said = true;
     if (s.ingesting && s.ingesting.total) {
       d.textContent = "Building the clothing picker…";
       h.removeAttribute("href");
@@ -161,12 +214,32 @@ function showSplash(app) {
       h.href = "/settings/#integrations";
       h.style.textDecoration = "underline"; h.style.cursor = "pointer";
       h.textContent = "Now add photos of clothes to the clothing folder in Google Drive — tap here for the guide. Outfits build themselves after that.";
+    } else {
+      // neither photos nor key: the default Drive message above already fits
+      said = false;
     }
-    // neither photos nor key: the default Drive message above already fits
+  };
+  // A book being built is the same news as an outfit being built: the board is
+  // empty because the hub is busy making the first thing that goes in it. It
+  // only speaks where the clothing coach falls through to the generic "connect
+  // Drive" line — which is wrong anyway once /content/status says Drive is
+  // connected and a book is under way.
+  const paintBook = (c) => {
+    const news = bookNews(c, null);
+    if (said || !news || !news.busy) return;
+    d.textContent = news.head;
+    h.removeAttribute("href");
+    h.style.textDecoration = "none"; h.style.cursor = "default";
+    h.textContent = news.text;
   };
   const poll = async () => {
-    try { paint(await (await fetch("/clothing/status", { cache: "no-store" })).json()); }
-    catch { /* hub briefly away: keep the current text */ }
+    const get = async (u) => {
+      try { return await (await fetch(u, { cache: "no-store" })).json(); }
+      catch { return null; }   // hub briefly away: keep the current text
+    };
+    const [s, c] = await Promise.all([get("/clothing/status"), get("/content/status")]);
+    paint(s);
+    paintBook(c);
   };
   poll();
   const t = setInterval(() => {
@@ -248,6 +321,49 @@ function startWardrobeWatch(watcher) {
   poll();
 }
 
+// Book footer (every board — a book landing is family news wherever she is
+// sitting, unlike the wardrobe note which is about the board it sits on).
+// Shows the work while it happens and, once the book lands with words the AI
+// was unsure of, the one tap to the review page. The grown-up's "do it NOW"
+// stays in Settings; the bar carries the door and nothing else.
+function startContentWatch() {
+  const note = document.getElementById("contentNote");
+  if (!note) return;
+  const hide = () => { note.classList.remove("show", "ready"); note.textContent = ""; };
+  // textContent, never innerHTML: the book's title is family text and the only
+  // untrusted string on this strip.
+  const paint = (news) => {
+    note.textContent = news.text;
+    note.classList.toggle("ready", !!news.href);
+    if (news.href) {
+      const a = document.createElement("a");
+      a.href = news.href;
+      a.textContent = news.tap;
+      note.appendChild(document.createTextNode(" "));
+      note.appendChild(a);
+    }
+    note.classList.add("show");
+  };
+
+  let watched = null;   // the book we have seen building
+  let settled = false;  // its "ready" line is up: leave it there to be read
+  async function poll() {
+    let c = null;
+    try { c = await (await fetch("/content/status", { cache: "no-store" })).json(); }
+    catch { /* hub briefly away: keep the current text */ }
+    let busy = false;
+    if (c) {
+      busy = !!(c.building && c.job && c.job.kind === "books");
+      if (busy) { watched = c.job.slug; settled = false; }
+      const news = bookNews(c, watched);
+      if (news && (busy || !settled)) { paint(news); settled = !busy; }
+      else if (!news && !settled) hide();
+    }
+    setTimeout(poll, busy ? T.busyMs : T.statusMs);
+  }
+  poll();
+}
+
 async function boot() {
   // dwell time first (best-effort; default 1200 if /settings is unreachable).
   let dwellMs = 1200;
@@ -312,6 +428,7 @@ async function boot() {
   window.dispatchEvent(new CustomEvent("board:ready"));
   const watcher = startWatcher({ etag: r.etag, offline: r.offline });
   startWardrobeWatch(watcher);
+  startContentWatch();
 }
 
 boot().catch((err) => {

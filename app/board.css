@@ -134,6 +134,21 @@ body{background:var(--paper); color:var(--ink);
 #wardrobeNote.ready{cursor:pointer; background:#1F6F3A}
 #ttsWarn.show ~ #wardrobeNote.show{bottom:60px}
 
+/* ---- book footer (T2.11) — the wardrobe strip's twin for the OTHER slow job
+   a grown-up starts from Drive: a book being read off its photos and narrated.
+   Same teal "working" treatment; the finished-with-flags state carries a plain
+   link to the review page. Touch only, NOT .dwell - book words are a grown-up's
+   job. Stacks above the strips already showing (it is last in the DOM). ---- */
+#contentNote{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:70; font-family:var(--font)}
+#contentNote.show{display:block}
+#contentNote.ready{background:#1F6F3A}
+#contentNote a{color:#fff; text-decoration:underline; white-space:nowrap}
+#ttsWarn.show ~ #contentNote.show,
+#wardrobeNote.show ~ #contentNote.show{bottom:60px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show{bottom:114px}
+
 /* ---- boot splash (T3.3) — nothing-to-show case; static text under the same
    door strip the board wears (the one dwell target on it, dad 9/3) */
 .splash{flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
