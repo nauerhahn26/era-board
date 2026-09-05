@@ -3,7 +3,8 @@
 // 1920x1080 and 1280x720, over board states [root, a confirm_N, a cat_N,
 // build]. Invariants: no .dwell target offscreen/occluded (center
 // elementFromPoint returns the target), no horizontal scroll, min inter-target
-// gap >= 28px (pairs <34px are warnings), labels never overflow horizontally,
+// gap >= the contract's gapFloor (pairs under gapWarn are warnings; since 9/5
+// warn == floor, so the warn band is retired), labels never overflow horizontally,
 // computed label font-size >= 74px, chrome never wins a tile's center pixel,
 // and (dad 9/2) the message bar is a <=9% strip holding only the exit door
 // while every pictogram tile shows a real picture, not a speck.
@@ -13,6 +14,18 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+
+// Thresholds come from the contract, never from a literal in here: a hard-coded
+// 28/34 is exactly how the gap floor drifted away from the doc before (dad 9/5).
+// This suite runs from two places — the gate's flat dir (era-hub/gate/, where
+// ../public/lib is era-core/lib) and, in place, era-board/tests/ — so try both.
+const CONTRACT = await (async () => {
+  for (const p of ["../public/lib/contract.js", "../../era-core/lib/contract.js"]) {
+    try { return (await import(new URL(p, import.meta.url))).CONTRACT; } catch { /* next */ }
+  }
+  throw new Error("lib/contract.js not found from " + import.meta.url);
+})();
+const S = CONTRACT.sizes;
 
 const BASE = "http://localhost:8377/board/";
 const SHOTS = fileURLToPath(new URL("./board-shots/", import.meta.url));
@@ -29,7 +42,9 @@ const STATES = [
   { name: "build", setup: async (p) => { await p.evaluate(() => window.Board.show("build")); } },
 ];
 
-function MEASURE() {
+// C carries the contract thresholds across into the page (page.evaluate cannot
+// import node modules), so the browser side has no numbers of its own either.
+function MEASURE(C) {
   const vw = innerWidth, vh = innerHeight;
   const vis = (el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
     return r.width > 2 && r.height > 2 && cs.display !== "none" && cs.visibility !== "hidden" &&
@@ -63,7 +78,9 @@ function MEASURE() {
     const dx = Math.max(a.left - b.right, b.left - a.right), dy = Math.max(a.top - b.bottom, b.top - a.bottom);
     const d = (dx < 0 && dy < 0) ? Math.max(dx, dy) : Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
     if (d < minGap) { minGap = d; minPair = [rects[i].label, rects[j].label]; }
-    if (d < 34) warns.push({ a: rects[i].label, b: rects[j].label, gap: +d.toFixed(1) });
+    // warn band: only meaningful while gapWarn > gapFloor. Since 9/5 they are
+    // equal (the board draws exactly the floor), so this never fires.
+    if (d < C.gapWarn && d >= C.gapFloor) warns.push({ a: rects[i].label, b: rects[j].label, gap: +d.toFixed(1) });
   }
 
   // WORD INTEGRITY (Gate-1): no partial words, ever.
@@ -157,7 +174,10 @@ function MEASURE() {
   if (cells.length) {
     let L = Infinity, R = -Infinity;
     for (const c of cells) { const r = c.getBoundingClientRect(); L = Math.min(L, r.left); R = Math.max(R, r.right); }
-    fillPct = +(((R - L) / (vw - 2 * 48)) * 100).toFixed(1);
+    // denominator = the width the renderer is allowed to use, i.e. the contract's
+    // board side pad on each edge (was a hard-coded 48 — the old <=48 ceiling —
+    // which stopped matching the renderer the moment the pad moved; dad 9/5).
+    fillPct = +(((R - L) / (vw - 2 * C.sidePad)) * 100).toFixed(1);
   }
 
   return { vw, vh, nTargets: rects.length, offscreen, hscroll, occluded, chromeWins,
@@ -186,7 +206,8 @@ test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
         await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
         await st.setup(page);
         await page.waitForTimeout(350);
-        const m = await page.evaluate(MEASURE);
+        const m = await page.evaluate(MEASURE,
+          { gapFloor: S.gapFloor, gapWarn: S.gapWarn, sidePad: S.sidePadBoard });
         const shot = `${st.name}_${vp.w}x${vp.h}.png`;
         await page.screenshot({ path: SHOTS + shot });
         summary.push(`${st.name} ${vp.w}x${vp.h}: targets=${m.nTargets} minGap=${m.minGap} warns=${m.warnCount} fill=${m.fillPct}%`
@@ -197,7 +218,9 @@ test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
         if (m.hscroll) violations.push(`${tag} HSCROLL`);
         if (m.occluded.length) violations.push(`${tag} OCCLUDED ${JSON.stringify(m.occluded)}`);
         if (m.chromeWins.length) violations.push(`${tag} CHROME_WINS ${JSON.stringify(m.chromeWins)}`);
-        if (m.minGap != null && m.minGap < 28) violations.push(`${tag} MINGAP ${m.minGap} ${JSON.stringify(m.minPair)}`);
+        // the floor is the contract's (14 since dad's 9/5 tablet-spacing ruling);
+        // -0.5 absorbs sub-pixel rounding on a grid that draws exactly the floor
+        if (m.minGap != null && m.minGap < S.gapFloor - 0.5) violations.push(`${tag} MINGAP ${m.minGap} ${JSON.stringify(m.minPair)}`);
         // word integrity — the app's core constraint (she is learning to read)
         if (m.breakRules.length) violations.push(`${tag} BREAK_CSS ${JSON.stringify(m.breakRules)}`);
         if (m.labelOverflow.length) violations.push(`${tag} PARTIAL_WORD ${JSON.stringify(m.labelOverflow)}`);

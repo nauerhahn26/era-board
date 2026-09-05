@@ -24,8 +24,10 @@ body{background:var(--paper); color:var(--ink);
    the bar is at most 9% of the viewport (board-render.js barHeight()), which
    hands the rest of the screen to the grid. Height is set inline per render. */
 /* the deeper BOTTOM padding is load-bearing: the door fills the strip, so with
-   even padding it sat 27px from the first tile — under the 28px mishit floor
-   the gates enforce (pixel gate, 9/2). */
+   even padding it sat 27px from the first tile — under the mishit floor the
+   gates enforce at the time (28px; pixel gate, 9/2). The floor came down to 14
+   on 9/5 with dad's tighter tablet spacing, but the extra bottom padding stays:
+   it is the door's own breathing room against the first row, not the grid gap. */
 .msgbar{flex:0 0 auto; width:100%; display:flex; align-items:stretch;
         gap:0; padding:6px 12px 10px; background:var(--bar-bg); color:var(--bar-ink);
         border-bottom:2px solid var(--teal-deep)}
@@ -131,7 +133,9 @@ body{background:var(--paper); color:var(--ink);
 .board-area{flex:1 1 auto; width:100%; display:grid;
             place-content:center; overflow:hidden}
 
-.cell{border-radius:26px; overflow:hidden; position:relative;
+/* 12px, not 26: measured off Ellie's original tablet (dad 9/5, "match that old
+   style") — a tight radius on tightly packed tiles reads as one dense board. */
+.cell{border-radius:12px; overflow:hidden; position:relative;
       width:100%; height:100%}
 .rest{background:#000000}
 

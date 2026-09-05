@@ -4,7 +4,8 @@
 // "get rid of speak/clear we aren't using it. The header is still too big. The
 // icon for the exit can be smaller." The grid FILLS the remaining
 // screen with wide rectangular tiles (TD Snap style): rows x cols stretch to the
-// full area, 28px gap, side padding <= 48. Every empty cell is a black inert
+// full area, packed at her own tablet's spacing (dad 9/5: 14px gap, 28px side
+// pad, 12px vertical pad — all from the contract). Every empty cell is a black inert
 // rest box; declared rows always render (never-empty bottom row).
 //
 // WORD INTEGRITY (Gate-1 core constraint — she is learning to read):
@@ -27,7 +28,11 @@ export const CONFIG = {
   // ~96px on the i13 (1920x1080) and ~69px on the 1024x768 QA VM instead of a
   // flat 124. The contract's barH stays the ceiling for very tall panels.
   BAR_H_FRAC: 0.09,
-  SIDE_PAD: EC.sizes.sidePadBoard, // <= 48 per Gate-1 review (>= 40 per original spec)
+  // dad 9/5 ("you put too much spacing between the tiles in the new build"):
+  // the pads and the gap are Ellie's own tablet's, measured off her photo —
+  // side 28, vertical 12, gap ~1% of screen width (14px at 1920). Tighter
+  // spacing is what lets each tile be bigger; §24 was amended to match.
+  SIDE_PAD: EC.sizes.sidePadBoard,
   V_PAD: EC.sizes.vPad,
   GAP: EC.sizes.gapFloor,        // fixed grid gap (the mishit-resistance floor)
   FONT_FLOOR: EC.sizes.fontFloor, // target floor; only a fit-impossible label goes below
@@ -183,7 +188,8 @@ export function barHeight(vh) {
 }
 
 // Fill-the-area grid: tiles are free-floating rectangles; rows x cols stretch to
-// the available box with a fixed 28px gap. (Gate-1: "use the screen".)
+// the available box with a fixed gap — the contract's gapFloor, which since 9/5
+// is Ellie's own tablet's ~1% of screen width. (Gate-1: "use the screen".)
 export function gridFit(rows, cols, availW, availH) {
   const gap = CONFIG.GAP;
   const w = Math.max(60, Math.floor((availW - (cols - 1) * gap) / cols));
