@@ -30,6 +30,15 @@
 // The swap is applied to the loaded recipe's buttons, so a re-render — a resize,
 // say — keeps what the parent just did instead of snapping back.
 //
+// A swap can only exchange two cells on the SAME page, though, and a song added
+// today takes the next free rank — the last page. So page one was unreachable
+// for a new song and a parent was left dragging at a wall (review 9/5). Two
+// things fix it, and both are here: board-render lets the "More" and "Back"
+// doors through while arranging, and DROPPING a song on one of those doors
+// sends it to the front of that page. A cross-page move is not a cell swap, so
+// it is applied by rewriting what each cell HOLDS, in running-order order —
+// which is the same shape the hub is told anyway.
+//
 // The hub is then told the WHOLE running order, every page of it, because
 // music-add.js's order() refuses a partial list rather than half-apply one.
 // A refusal is undone on screen and shown in the hub's own words.
@@ -94,16 +103,63 @@ export function mountArrange({ api, partner, recipe }) {
     return true;
   }
 
-  // Every song the board knows, page after page, in the order it now shows
-  // them — the only shape the hub accepts.
-  function runningOrder() {
-    const ids = [];
+  // Every song DOOR the board knows, page after page, in the order it shows
+  // them: the running order, one slot at a time.
+  function slots() {
+    const out = [];
     for (const board of api.session.model.boards.values())
-      for (const b of movables(board)) ids.push(b.song_id);
-    return ids;
+      for (const b of movables(board)) out.push(b);
+    return out;
+  }
+  // Every song the board knows, in the order it now shows them — the only
+  // shape the hub accepts.
+  function runningOrder() { return slots().map((b) => b.song_id); }
+
+  // What makes a tile THIS song rather than the one next to it. Everything
+  // else about the button — its cell, its spans — belongs to the slot and
+  // stays where it is.
+  const SONG_FIELDS = ["label", "say", "song_id", "audio", "v", "clip_ms", "image", "load", "duration"];
+
+  // Put the songs back into the slots in the order `ids` names them. This is
+  // how a song crosses a page: the cells never move, what sits in them does.
+  // Returns false if the board reloaded under us mid-drag.
+  function reflow(ids) {
+    const s = slots();
+    if (s.length !== ids.length) return false;
+    const held = new Map();
+    for (const b of s) {
+      const one = {};
+      for (const k of SONG_FIELDS) one[k] = b[k];
+      held.set(b.song_id, one);
+    }
+    for (let i = 0; i < s.length; i++) {
+      const one = held.get(ids[i]);
+      if (!one) return false;
+      for (const k of SONG_FIELDS) s[i][k] = one[k];
+    }
+    return true;
   }
 
-  async function save(idA, idB) {
+  // A song dropped on a page door goes to the FRONT of that page, and the
+  // board follows it there so a parent can see where it went. Walk a song
+  // from the last page to page one and it arrives one page per drag.
+  function sendToPage(id, boardId) {
+    const was = runningOrder();
+    const target = api.session.model.boards.get(boardId);
+    if (!target) return;
+    const first = movables(target)[0];
+    const rest = was.filter((x) => x !== id);
+    const at = first ? rest.indexOf(first.song_id) : rest.length;
+    if (at < 0) return;                          // that page holds no songs any more
+    rest.splice(at, 0, id);
+    if (!reflow(rest)) return;
+    api.session.navigate(boardId);
+    api.render();
+    freeze();                                    // the redraw handed back fresh tiles
+    save(() => { if (reflow(was)) { api.render(); freeze(); } });
+  }
+
+  async function save(undo) {
     const ids = runningOrder();
     say("Saving the new order…");
     let res, out = {};
@@ -113,7 +169,7 @@ export function mountArrange({ api, partner, recipe }) {
         body: JSON.stringify({ ids }),
       });
     } catch {
-      swap(idB, idA);                          // nothing was saved: show the truth
+      undo();                                  // nothing was saved: show the truth
       say("New ERA is not answering. Check that the hub is running, then try again.");
       done(false);
       return;
@@ -123,12 +179,18 @@ export function mountArrange({ api, partner, recipe }) {
       // The hub already writes its refusals in words a parent can act on
       // (music-add.js): show it, and put the tiles back where they were so the
       // board on screen and the board on disk never disagree.
-      swap(idB, idA);
+      undo();
       say(out.message || "New ERA could not save that order.");
       done(false);
       return;
     }
-    say("The songs are in their new order.");
+    // The order is written, but the board draws from THIS device's shelf, which
+    // the mirror fills. `mirrored:false` means the write landed and the shelf
+    // has not taken it yet — so do not tell a parent the tiles have moved when
+    // the ones she will look at have not (review 9/5).
+    say(out.mirrored === false
+      ? "Saved. The board will catch up in a few minutes."
+      : "The songs are in their new order.");
     done(true);
   }
   // Whoever is watching — a test, a future partner console — hears the answer.
@@ -147,7 +209,8 @@ export function mountArrange({ api, partner, recipe }) {
     drag.el.style.pointerEvents = "none";      // look THROUGH the tile in hand
     const hit = document.elementFromPoint(x, y);
     drag.el.style.pointerEvents = was;
-    return hit && hit.closest ? hit.closest(".tile[data-arrange-id]") : null;
+    return hit && hit.closest
+      ? hit.closest(".tile[data-arrange-id], .tile[data-arrange-nav]") : null;
   }
 
   function onDown(e) {
@@ -179,14 +242,18 @@ export function mountArrange({ api, partner, recipe }) {
     d.el.style.transform = "";
     d.el.classList.remove("dragging");
     if (d.over) d.over.classList.remove("drop-target");
-    return keep && d.over ? { from: d.id, to: d.over.dataset.arrangeId } : null;
+    if (!keep || !d.over) return null;
+    return { from: d.id, to: d.over.dataset.arrangeId || null,
+             nav: d.over.dataset.arrangeNav || null };
   }
 
   function onUp(e) {
     if (!drag || e.pointerId !== drag.pid) return;
     const move = endDrag(true);
-    if (!move || move.from === move.to) return;
-    if (swap(move.from, move.to)) save(move.from, move.to);
+    if (!move) return;
+    if (move.nav) { sendToPage(move.from, move.nav); return; }
+    if (!move.to || move.from === move.to) return;
+    if (swap(move.from, move.to)) save(() => swap(move.to, move.from));
   }
   function onCancel() { endDrag(false); }
 
@@ -205,7 +272,7 @@ export function mountArrange({ api, partner, recipe }) {
     } catch { /* no MutationObserver: the resize case simply re-arms dwell */ }
     note = document.createElement("div");
     note.id = "arrangeNote";
-    note.textContent = "Drag a song onto another to swap them. Tap ✓ Done when the board looks right.";
+    note.textContent = "Drag a song onto another to swap them, or onto ← / More to send it to that page. Tap ✓ Done when the board looks right.";
     document.body.appendChild(note);
     api.area.addEventListener("pointerdown", onDown);
     api.area.addEventListener("pointermove", onMove);

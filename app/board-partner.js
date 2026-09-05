@@ -11,6 +11,11 @@
 // 7e9012f -> d4a7556 removed a bar button that WAS gaze-reachable; that is the
 // line, not the header itself.)
 //
+// The same rule reaches DOWN, not just across: while the sheet is open the
+// board beneath it is put to sleep, because a full-screen backdrop hides
+// nothing from dwell.js (see freezeBoard below). The door keeps its dwell
+// throughout — that one is never taken away from her.
+//
 // The strip exists on the two boards a grown-up curates — ?recipe=songs and
 // ?recipe=movies — and on no other. Her outfit board keeps its bare bar.
 //
@@ -33,13 +38,48 @@ const isLink = (s) => /^https?:\/\//i.test(s);
 let sheet = null;
 let pollTimer = null;
 let seenWhen = null;   // /music/add/status's `last.when` as it was BEFORE this add
+let frozen = [];       // the dwell targets this sheet put to sleep
 
 function onKey(e) { if (e.key === "Escape") closeSheet(); }
+
+// While the sheet is up, the board underneath is furniture — and a backdrop is
+// NOT what makes it one. era-core/dwell.js's targetAt() walks the WHOLE
+// elementsFromPoint stack looking for the first
+// `.dwell:not([data-dwell-disabled])`, so a full-screen overlay with no .dwell
+// is simply stepped over: while a grown-up typed into this sheet, a parked gaze
+// could still fire the song tiles behind it (review 9/5). Arrange mode learned
+// this first — board-arrange.js freeze() — and for the same reason takes BOTH
+// the class and the attribute: the attribute stops the gaze fill, dropping the
+// class stops dwell.js's 150 ms long-press tap-rescue.
+//
+// The door keeps its dwell. The way out of the board is never taken away from
+// her, not even for a grown-up's sheet. And only what THIS sheet put to sleep
+// is woken again, so opening a sheet while arrange mode is on hands the board
+// back exactly as arrange mode left it.
+function freezeBoard(except) {
+  frozen = [...document.querySelectorAll(".dwell")]
+    .filter((el) => el.id !== "barDoor" && !except.contains(el));
+  for (const el of frozen) {
+    el.classList.remove("dwell");
+    el.setAttribute("data-dwell-disabled", "");
+  }
+}
+function thawBoard() {
+  for (const el of frozen) {
+    el.classList.add("dwell");
+    el.removeAttribute("data-dwell-disabled");
+  }
+  frozen = [];
+  // the pointer may be parked on a tile as the sheet closes: give the board a
+  // settle window so it does not inherit a hold nobody started.
+  try { if (window.Dwell && window.Dwell.suppress) window.Dwell.suppress(600); } catch { /* dwell.js absent in a bare page */ }
+}
 
 function closeSheet() {
   clearTimeout(pollTimer); pollTimer = null;
   document.removeEventListener("keydown", onKey, true);
   if (sheet) { sheet.remove(); sheet = null; }
+  thawBoard();
 }
 
 // The sheet's one line of news. Everything a parent reads here comes from the
@@ -65,7 +105,10 @@ function watchAdd() {
       const who = st.running.title ? "“" + st.running.title + "”" : "that song";
       say("New ERA is fetching " + who + " — " + st.running.phase + ".");
     } else if (st && st.last && st.last.when !== seenWhen) {
-      if (st.last.ok) say((st.last.title || "That song") + " is on the board.");
+      // `mirrored:false` = the song is in the family's folder but this device's
+      // shelf has not taken it yet, so the tile is not there to look at.
+      if (st.last.ok) say((st.last.title || "That song") + " is on the board."
+        + (st.last.mirrored === false ? " The board will catch up in a few minutes." : ""));
       else say("New ERA could not add that song. " + (st.last.error || ""));
       return;                       // the answer is in: stop polling
     }
@@ -97,13 +140,77 @@ async function sendSong(raw, goBtn) {
   try { out = await res.json(); } catch { /* an answer with no body: say the plain thing */ }
   goBtn.disabled = false;
   if (!res.ok) {
-    // 409 pack-missing / needs-local-drive / busy, 400 bad-url — every one of
-    // them already carries a sentence a parent can act on. Show it as it is.
+    // 409 pack-missing / needs-local-drive / busy / manifest-unreadable, 400
+    // bad-url — every one of them already carries a sentence a parent can act
+    // on. Show it as it is.
     say(out.message || "New ERA could not add that song.");
+    // ...and "install it and try again" gets something to press.
+    if (out.error === "pack-missing" && out.pack) offerInstall(out.pack, goBtn);
     return;
   }
   say("New ERA is fetching that song. It will be on the board in a minute.");
   watchAdd();
+}
+
+// The pack the hub named, fetched on one press. music-add.js hands back the
+// pack id with "pack-missing" for exactly this, and POST /packs/install is the
+// hub's door for a pack no app owns — media-tools is unticked in the installer
+// by default, so without this the sheet's "Install it and try again" pointed at
+// a button that existed nowhere on the machine (review 9/5).
+function offerInstall(pack, goBtn) {
+  if (!sheet || sheet.querySelector("#sheetInstall")) return;
+  const b = document.createElement("button");
+  b.type = "button"; b.id = "sheetInstall"; b.className = "sheet-btn go";
+  b.textContent = "Install it now";              // deliberately NO .dwell
+  const row = sheet.querySelector(".sheet-row");
+  row.insertBefore(b, row.firstChild);
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    if (goBtn) goBtn.disabled = true;            // adding cannot work until it lands
+    say("New ERA is getting the downloader. This takes a minute.");
+    let res;
+    try {
+      res = await fetch("/packs/install", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pack }),
+      });
+    } catch {
+      b.disabled = false; if (goBtn) goBtn.disabled = false;
+      say("New ERA is not answering. Check that the hub is running, then try again.");
+      return;
+    }
+    if (!res.ok) {
+      b.disabled = false; if (goBtn) goBtn.disabled = false;
+      say("New ERA could not start that download. Try again.");
+      return;
+    }
+    watchPack(b, goBtn);
+  });
+}
+
+// The download runs on the hub, so the sheet follows the status door it is
+// already polling: /music/add/status says whether the pack is on disk.
+function watchPack(btn, goBtn) {
+  const until = Date.now() + T.addGiveUpMs;
+  const tick = async () => {
+    if (!sheet) return;
+    let st = null;
+    try { st = await (await fetch("/music/add/status", { cache: "no-store" })).json(); }
+    catch { /* a blip: the download is on the hub, not here */ }
+    if (!sheet) return;
+    if (st && st.pack && st.pack.installed) {
+      btn.remove();
+      if (goBtn) goBtn.disabled = false;
+      say("The downloader is ready. Press “Add it” to try that song again.");
+      return;
+    }
+    if (Date.now() < until) { pollTimer = setTimeout(tick, T.addPollMs); return; }
+    btn.disabled = false;
+    if (goBtn) goBtn.disabled = false;
+    say("That download is taking a long time. Try again later.");
+  };
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(tick, T.addPollMs);
 }
 
 // The sheet. Pointer-only, like the strip that opens it: no .dwell anywhere,
@@ -156,6 +263,7 @@ function openSheet(kind) {
   wrap.appendChild(card);
   document.body.appendChild(wrap);
   sheet = wrap;
+  freezeBoard(wrap);   // the backdrop paints over the board; THIS puts it to sleep
 
   closeBtn.addEventListener("click", closeSheet);
   wrap.addEventListener("click", (e) => { if (e.target === wrap) closeSheet(); });

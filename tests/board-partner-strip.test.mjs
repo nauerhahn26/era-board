@@ -9,7 +9,10 @@
 //   * the door stays the message bar's ONLY dwell target, and nothing in the
 //     strip carries .dwell or a data-dwell-* attribute — a gaze parked on it
 //     for twice the longest hold must activate nothing;
-//   * the bar is still the <=9% slab (dad 9/2 "the header is still too big").
+//   * the bar is still the <=9% slab (dad 9/2 "the header is still too big");
+//   * and the sheet the strip opens SHIELDS the board — a gaze parked on a tile
+//     beneath the backdrop fires nothing, because a backdrop alone does not
+//     stop dwell.js (review 9/5).
 // Then the feature itself: "+ Add" opens a pointer-only sheet that posts to the
 // hub's /music/add ({url} for a pasted link, {query} for a typed name) and puts
 // the hub's own answer — the 202, or "the pack is missing" — on screen in the
@@ -36,6 +39,7 @@ const IDLE_ADD = { pack: { id: "media-tools", installed: true }, folder: true, r
 async function open(browser, recipe, dial) {
   const d = Object.assign({ add: { status: 202, body: { started: true } }, addStat: () => IDLE_ADD }, dial || {});
   const posts = [];
+  const installs = [];
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
   await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
   await ctx.route("**/outfit-event", (r) => r.fulfill({ status: 204, body: "" }));
@@ -50,6 +54,12 @@ async function open(browser, recipe, dial) {
     posts.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
     r.fulfill({ status: d.add.status, contentType: "application/json", body: JSON.stringify(d.add.body) });
   });
+  // the pack door of last resort (hub review 9/5): media-tools belongs to no
+  // app, so this is the only way the sheet's offer can ever be real.
+  await ctx.route("**/packs/install", (r) => {
+    installs.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
+    r.fulfill({ status: 202, contentType: "application/json", body: '{"installing":true}' });
+  });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -63,7 +73,7 @@ async function open(browser, recipe, dial) {
   });
   await page.goto(BASE + (recipe ? "?recipe=" + recipe : ""), { waitUntil: "load" });
   await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
-  return { ctx, page, posts, errors, dial: d };
+  return { ctx, page, posts, installs, errors, dial: d };
 }
 
 // what the bar is made of, from the page's own point of view
@@ -168,6 +178,54 @@ test("a typed name goes as a name, and the landed song is reported", async () =>
   } finally { await browser.close(); }
 });
 
+// The amendment proved the STRIP is gaze-unreachable and then opened a
+// full-screen overlay that was gaze-TRANSPARENT: era-core/dwell.js's
+// targetAt() walks the whole elementsFromPoint stack for the first
+// .dwell:not([data-dwell-disabled]), so a backdrop with no .dwell is simply
+// stepped over. While a grown-up typed into the sheet, a parked gaze could
+// still open a song behind it (review 9/5). Arrange mode already knew the fix.
+test("the sheet shields the board: a gaze parked on a tile beneath it fires nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser, "songs");
+    const tile = page.locator(".board-area .tile.dwell").first();
+    await tile.waitFor({ timeout: 8000 });
+    const box = await tile.boundingBox();
+    const before = await page.evaluate(() => window.Board.session.currentId);
+
+    await page.locator("#stripAdd").click();
+    await page.locator("#partnerSheet").waitFor();
+    const frozen = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      doorDwell: !!document.querySelector(".bardoor.dwell"),
+    }));
+    assert.equal(frozen.dwellTiles, 0, "with the sheet up, not one tile is a gaze target");
+    assert.equal(frozen.disabled, frozen.tiles, "every tile says so in the attribute dwell.js reads");
+    assert.equal(frozen.doorDwell, true, "the way out of the board is never taken away");
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(2600);   // > the longest hold on the board (2400ms door)
+    assert.equal(await page.evaluate(() => window.__activateCount), 0,
+                 "a gaze parked under the sheet never fires the tile beneath it");
+    assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the sheet");
+    assert.equal(await page.evaluate(() => window.Board.session.currentId), before,
+                 "and the board is exactly where the grown-up left it");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    const back = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+    }));
+    assert.ok(back.dwellTiles > 0, "closing the sheet gives her the board back");
+    assert.equal(back.disabled, 0, "with nothing left switched off");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
 test("no pack, no download attempt — the hub's plain words land in the sheet", async () => {
   const browser = await chromium.launch();
   try {
@@ -183,6 +241,42 @@ test("no pack, no download attempt — the hub's plain words land in the sheet",
     assert.equal(await page.locator("#partnerSheet").isVisible(), true);
     await page.locator("#sheetClose").click();
     await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// "Install it and try again" has to lead somewhere. media-tools is unticked in
+// the installer by default and belongs to no app, so until POST /packs/install
+// existed (hub review 9/5) the sheet was telling a parent to press a button
+// that was nowhere on the machine.
+test("no pack: the sheet offers the install, and the offer really installs it", async () => {
+  const browser = await chromium.launch();
+  try {
+    const missing = { error: "pack-missing", pack: "media-tools",
+                      message: "Adding songs from the web needs a one-time download of about 18 MB. Install it and try again." };
+    let stat = { ...IDLE_ADD, pack: { id: "media-tools", installed: false } };
+    const { ctx, page, installs, errors } =
+      await open(browser, "songs", { add: { status: 409, body: missing }, addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://example.com/song");
+    await page.locator("#sheetGo").click();
+
+    const install = page.locator("#sheetInstall");
+    await install.waitFor({ timeout: 4000 });
+    assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the offer is pointer-only too");
+    await install.click();
+    await page.waitForFunction(() => /New ERA is getting/i.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.equal(installs.length, 1, "one POST /packs/install");
+    assert.deepEqual(installs[0].body, { pack: "media-tools" }, "and it names the pack the hub asked for");
+    assert.ok(installs[0].type.startsWith("application/json"), "JSON, so the hub's own-door check lets it through");
+
+    // the hub finishes the download; the sheet is watching the status door it
+    // already polls, and hands the parent back the "Add it" button.
+    stat = { ...IDLE_ADD, pack: { id: "media-tools", installed: true } };
+    await page.waitForFunction(() => !document.getElementById("sheetInstall"), null, { timeout: 6000 });
+    await page.waitForFunction(() => !document.getElementById("sheetGo").disabled, null, { timeout: 4000 });
+    assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
 });

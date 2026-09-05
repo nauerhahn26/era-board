@@ -620,13 +620,26 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // are furniture, not doors. board-arrange.js owns the flag; it is checked
   // here rather than by unbinding the handler so a click that was already in
   // flight when the mode opened cannot slip through.
+  //
+  // A PAGE TURN is not a pick either — but it is not a drag, and it has to
+  // keep working: a song added today lands at the END of the running order,
+  // i.e. on the LAST page, and a swap can only ever exchange two cells on the
+  // same page. Arrange mode used to swallow every tap, so "More" and "Back"
+  // were dead and page one was unreachable for a new song (review 9/5). Nav
+  // doors go through; board-arrange.js watches the grid and puts the new
+  // page's tiles straight back to sleep.
   let arranging = false;
+  // the songs/movies grids' page turns: "Back" is type:"back", "More" is the
+  // teal type:"control" (server.js songsRecipe). Not the module's NAV_TYPES,
+  // which is the dwell-hold tier and covers doors this mode must not open.
+  const PAGE_DOORS = new Set(["back", "control", "more"]);
+  const isPageDoor = (btn) => PAGE_DOORS.has((btn.type || "").toLowerCase()) && btn.load != null;
 
   function onTile(btn, el) {
-    if (arranging) return;   // a drag is not a pick
+    const type = (btn.type || "").toLowerCase();
+    if (arranging && !isPageDoor(btn)) return;   // a drag is not a pick
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
-    const type = (btn.type || "").toLowerCase();
     // Movies Board (spec 8/29 §5): a show tile is a DOOR to its show board
     // (episode picker) — silent nav, no launch, no event. movie/episode tiles
     // LAUNCH the streaming app via ERAgaze; the board itself never plays video.
@@ -719,6 +732,9 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
       // has to walk the recipe again to name what it just moved.
       if ((btn.type || "").toLowerCase() === "song" && btn.song_id && btn.load != null)
         el.dataset.arrangeId = btn.song_id;
+      // ...and the page doors are where a drag may SEND one, which is the only
+      // way a song ever crosses a page boundary (review 9/5).
+      if (isPageDoor(btn)) el.dataset.arrangeNav = btn.load;
       if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
         movieEls.set(launchKey(btn), el);
       place(el, rs, cs);

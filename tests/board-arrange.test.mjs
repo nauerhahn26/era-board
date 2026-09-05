@@ -271,3 +271,72 @@ test("a hub that refuses the new order says so in its own words, and the tiles g
     await ctx.close();
   } finally { await browser.close(); }
 });
+
+// Arrange mode used to swallow EVERY tap, which killed the "More" and "Back"
+// doors — and a swap only ever exchanges two cells on the SAME page. A song
+// added today lands at the end of the running order, i.e. on the last page, so
+// page one was unreachable for it and a parent was left dragging at a wall
+// (review 9/5). Page turns work while arranging, and a song dropped on a page
+// door goes to the front of that page.
+test("arrange mode turns the page, and a song can be sent to another one", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, orders, errors } = await open(browser);
+    await enterArrange(page);
+
+    await page.locator(".board-area .tile.type-control").click();   // "More"
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-2", null, { timeout: 4000 });
+    assert.deepEqual(await pageOrder(page), ALL.slice(9), "page two: the songs page one had no room for");
+    const still = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      note: !!document.getElementById("arrangeNote"),
+    }));
+    assert.equal(still.dwellTiles, 0, "the new page is asleep too: a page turn does not re-arm her tiles");
+    assert.equal(still.disabled, still.tiles, "every tile on it says so in the attribute dwell.js reads");
+    assert.equal(still.note, true, "and arrange mode is still on");
+
+    const a = await centre(page, "test-song-10");
+    const back = await page.locator(".board-area .tile.type-back").boundingBox();
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(back.x + back.width / 2, back.y + back.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(() => window.__arrangeSaves > 0, null, { timeout: 4000 });
+
+    const want = ["test-song-10", ...ALL.filter((id) => id !== "test-song-10")];
+    assert.equal(await page.evaluate(() => window.Board.session.currentId), "songs",
+                 "the board follows the song it just sent, so a parent sees where it went");
+    assert.deepEqual(await pageOrder(page), want.slice(0, 9), "and it is the first tile on page one");
+    assert.equal(orders.length, 1, "one POST /music/order");
+    assert.deepEqual(orders[0], { ids: want }, "naming every song the board knows, in the new order");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The mirror is what carries the new order to the shelf the tiles are drawn
+// from. When it does not land the hub says so (`mirrored:false`), and the note
+// must not claim the board has already changed.
+test("an order the shelf has not taken yet is reported as saved, not as done", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } =
+      await open(browser, { order: { status: 200, body: { ok: true, songs: 12, mirrored: false } } });
+    await enterArrange(page);
+    const a = await centre(page, "test-song-1");
+    const b = await centre(page, "test-song-2");
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForFunction(() => /catch up/i.test(document.getElementById("arrangeNote").textContent),
+                               null, { timeout: 4000 });
+    const want = ALL.slice();
+    want[0] = "test-song-2"; want[1] = "test-song-1";
+    assert.deepEqual(await pageOrder(page), want.slice(0, 9), "the move was saved, so it stays on screen");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
