@@ -153,7 +153,7 @@ function showSplash(app) {
   app.innerHTML = "";
   // The same door strip the board itself wears: a splash that can last minutes
   // (naming 40 photos) is still a screen she must be able to leave (dad 9/3).
-  const { sizeBar } = mountDoorBar(app, () => speech.stop && speech.stop());
+  const { bar, sizeBar } = mountDoorBar(app, () => speech.stop && speech.stop());
   window.addEventListener("resize", sizeBar);
   const d = document.createElement("div");
   d.className = "splash";
@@ -168,6 +168,23 @@ function showSplash(app) {
   h.href = "/settings/#integrations";
   h.textContent = "No content yet. Grown-ups: connect Google Drive in Settings to add photos, choices, and songs - tap here.";
   app.appendChild(h);
+  if (RECIPE_NAME === "songs" || RECIPE_NAME === "movies") {
+    // An empty songs library is not Drive's kind of "no content": a grown-up
+    // adds the first song with "+ Add" (spec §6), so the strip has to ride on
+    // this screen too — the strip used to mount only once a recipe had
+    // loaded, and a family that ticked Music at install then had no way to
+    // reach the one control that fills it (VM QA 9/5, T7.6). Pointer-only as
+    // ever; the door stays the bar's only dwell target. A landed song ends the
+    // splash through the caller's own retry.
+    const song = RECIPE_NAME === "songs";
+    d.textContent = song ? "No songs yet." : "Nothing to watch yet.";
+    h.removeAttribute("href");
+    h.style.textDecoration = "none"; h.style.cursor = "default";
+    h.textContent = "Grown-ups: tap + Add at the top — with a mouse or a finger — to add the first " +
+      (song ? "song" : "show") + ".";
+    mountPartnerStrip({ bar, recipe: RECIPE_NAME });
+    return;
+  }
   if (RECIPE_NAME !== "today") return;   // coaching below is clothing-only
 
   // `said` = a clothing state claimed the splash. The clothing coach keeps

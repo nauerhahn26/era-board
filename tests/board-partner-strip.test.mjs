@@ -280,3 +280,72 @@ test("no pack: the sheet offers the install, and the offer really installs it", 
     await ctx.close();
   } finally { await browser.close(); }
 });
+
+// The FIRST song. A fresh install has no songs library, so /recipes/songs.json
+// is the honest 404 and the board sits on its splash — which used to say
+// "connect Google Drive…" (true of clothes, not of songs) and carried no strip,
+// because the strip mounted only after a recipe loaded. VM QA 9/5 (T7.6): a
+// family that ticked Music at install could never reach the one control that
+// fills it. So on the songs and movies boards the splash wears the strip too —
+// pointer-only as ever, the door still the only dwell target — and says what
+// to do; a landed song ends the splash through its own retry.
+test("no songs yet: the splash says so and carries + Add, and an add ends the splash", async () => {
+  const browser = await chromium.launch();
+  try {
+    let songs = null;   // null -> 404; a recipe -> the library has a song now
+    const posts = [];
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+    await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/music-event", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+    await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+    await ctx.route("**/recipes/songs.json", (r) => songs
+      ? r.fulfill({ status: 200, contentType: "application/json", headers: { etag: '"one"' }, body: JSON.stringify(songs) })
+      : r.fulfill({ status: 404, body: "not found" }));
+    await ctx.route("**/music/add/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(IDLE_ADD) }));
+    await ctx.route("**/music/add", (r) => {
+      posts.push(r.request().postDataJSON());
+      r.fulfill({ status: 202, contentType: "application/json", body: '{"started":true}' });
+    });
+    await ctx.route("http://127.0.0.1:49155/**", (r) => r.abort());
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => {
+      try { localStorage.clear(); } catch {}
+      window.__activateCount = 0;
+      document.addEventListener("dwell:activate", () => { window.__activateCount++; }, true);
+      window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                             pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300, addPollMs: 120 };
+    });
+    await page.goto(BASE + "?recipe=songs", { waitUntil: "load" });
+    await page.waitForSelector(".splash");
+    await page.waitForFunction(() => /No songs yet/.test(document.querySelector(".splash").textContent), null, { timeout: 4000 });
+    const note = await page.locator(".splash-note").textContent();
+    assert.match(note, /\+ Add/, "the note names the control: " + note);
+    assert.doesNotMatch(note, /Google Drive/, "songs do not come from Drive");
+    const shape = await barShape(page);
+    assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
+    assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
+    assert.equal(await page.locator(".dwell").count(), 1, "…and the splash's only one at all");
+    assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    // a grown-up adds the first song from right here
+    await page.locator("#stripAdd").click();
+    await page.locator("#partnerSheet").waitFor();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    assert.deepEqual(posts, [{ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }]);
+    // …and once the library exists the splash gives way to the board by itself
+    songs = { locale: "en-US", root: "songs", home_label: "Songs",
+              boards: [{ id: "songs", name: "What do I want to hear?", rows: 3, columns: 4,
+                         buttons: [{ label: "One", say: "one", type: "song", song_id: "one", audio: "music/one.wav",
+                                     clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
+    await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
+    assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
