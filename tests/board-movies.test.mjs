@@ -295,9 +295,21 @@ test("49155 failure is graceful: calm flag, no marker, no event, board stays usa
     assert.equal(await page.locator(".tile.watching").count(), 0, "no watching marker on failure");
     assert.equal(events.length, 0, "no movie-event on failure (history counts real launches only)");
     assert.deepEqual(await log(page), [{ call: "stop" }], "still silent — no error speech at her");
+    // T7.6 bug 4 (VM QA 9/5): the flag says "refused", the partner banner says
+    // WHY — a touch-only family that unticked ERAgaze otherwise has a Movies
+    // app that never plays and never explains. Touch only, never a dwell target.
+    const warn = page.locator("#launchWarn.show");
+    await warn.waitFor({ timeout: 2000 });
+    assert.match(await warn.textContent(), /ERAgaze/, "the banner names the thing that is missing");
+    assert.match(await warn.textContent(), /Settings/, "and where a grown-up turns it on");
+    assert.equal(await warn.evaluate((el) => el.classList.contains("dwell") || el.hasAttribute("data-dwell-ms")), false,
+      "the banner is not a dwell target");
+    assert.equal(await warn.evaluate((el) => getComputedStyle(el).pointerEvents), "none",
+      "a tap on the banner falls through to the tile under it");
     // the flag clears on its own (~2s) and the board never crashed/reloaded
     await page.waitForFunction(() => !document.querySelector(".tile.launch-failed"), null, { timeout: 5000 });
     assert.ok(await page.evaluate(() => !!window.Board), "board alive after a dead ERAgaze");
+    assert.equal(await page.locator("#launchWarn.show").count(), 1, "the banner outlives the 2 s flag — a parent needs time to read it");
 
     // a 500 from ERAgaze is the same graceful path
     state.launchStatus = 500;
@@ -310,6 +322,7 @@ test("49155 failure is graceful: calm flag, no marker, no event, board stays usa
     await page.locator('.tile.type-episode:has-text("Keepy Uppy")').click();
     await page.waitForSelector(".tile.watching", { timeout: 4000 });
     assert.equal(launches.length, 1, "recovered launch goes through");
+    assert.equal(await page.locator("#launchWarn.show").count(), 0, "a real launch clears the explanation");
     assert.deepEqual(events.at(-1), { titleId: "bluey", service: "disney",
       episode: { s: 1, e: 3 }, action: "launch" }, "recovered launch reports its event");
     await ctx.close();

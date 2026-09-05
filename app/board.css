@@ -227,6 +227,19 @@ body{background:var(--paper); color:var(--ink);
          font-family:var(--font)}
 #netWarn.show{display:block}
 
+/* ---- movie launch banner (T7.6 bug 4, VM QA 9/5) — the tile's 2 s dashed
+   flag said "something refused" and nothing said WHAT: a touch-only family
+   that unticked ERAgaze has a Movies app whose tiles can never play. Same
+   amber partner strip as #netWarn, bottom-centre, above every standing footer
+   (it is transient: cleared by the next real launch or by its own timer).
+   Touch only, NOT .dwell — and pointer-events:none so a tap on it reaches the
+   tile underneath instead of dying on the banner. ---- */
+#launchWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:#8A5A18; color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:72; pointer-events:none;
+         font-family:var(--font); text-align:center}
+#launchWarn.show{display:block}
+
 /* ---- wardrobe footer (dad 9/3: "I added photos after my first run - a
    footer that says new photos were found and are processing"). Same partner
    strip as the warn banners, teal so it reads "working" not "wrong"; sits

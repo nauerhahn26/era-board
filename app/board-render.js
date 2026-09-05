@@ -589,6 +589,24 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     return { url: n.url, episode: n.episode, label: n.label };
   }
 
+  // The flag on the tile says "refused"; the banner says WHY. VM QA 9/5 (T7.6
+  // bug 4): a touch-only family that unticked ERAgaze at install added Moana,
+  // pressed it, watched the tile dim for two seconds and nothing else ever
+  // happened — a Movies app that cannot play anything and never says so. The
+  // hand-off design stands (a hub-side browser fallback is dad's call, plan
+  // queue); this is the partner banner the other slow/broken states already
+  // wear (#netWarn, #ttsWarn): touch only, never .dwell, gone on the next real
+  // launch or after LAUNCH_WARN_MS on its own.
+  const LAUNCH_WARN_MS = 12000;
+  let launchWarnTimer = null;
+  function setLaunchWarn(on) {
+    const w = document.getElementById("launchWarn");
+    if (!w) return;
+    clearTimeout(launchWarnTimer); launchWarnTimer = null;
+    w.classList.toggle("show", on);
+    if (on) launchWarnTimer = setTimeout(() => w.classList.remove("show"), LAUNCH_WARN_MS);
+  }
+
   function launchMovie(btn, el) {
     const body = { url: btn.url, watch: true, titleId: btn.titleId };
     if (btn.episode) body.episode = btn.episode;
@@ -598,6 +616,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
       method: "POST", body: JSON.stringify(body),
     }).then((r) => {
       if (!r.ok) throw new Error("launch " + r.status);
+      setLaunchWarn(false);           // the engine answered: the explanation is stale
       watchingKey = launchKey(btn);   // marker moves only on a REAL launch
       applyWatching();
       postMovieEvent(btn);            // history/recommender counts real launches only
@@ -606,6 +625,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
         el.classList.add("launch-failed");
         setTimeout(() => el.classList.remove("launch-failed"), 2000);
       }
+      setLaunchWarn(true);
     });
   }
 
