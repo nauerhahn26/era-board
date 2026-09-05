@@ -78,6 +78,7 @@ function thawBoard() {
 function closeSheet() {
   clearTimeout(pollTimer); pollTimer = null;
   document.removeEventListener("keydown", onKey, true);
+  results = null;                     // it went with the card
   if (sheet) { sheet.remove(); sheet = null; }
   thawBoard();
 }
@@ -88,6 +89,15 @@ function closeSheet() {
 function say(text) {
   const el = sheet && sheet.querySelector("#sheetSay");
   if (el) el.textContent = text;
+}
+
+// The search grid, when one is up. Torn down by the pick that ends it and by
+// the next search — a sheet never holds two answers at once.
+let results = null;
+function clearResults() {
+  if (results) { results.remove(); results = null; }
+  const credit = sheet && sheet.querySelector("#sheetCredit");
+  if (credit) credit.remove();
 }
 
 // After the 202 the download runs behind the door, so the sheet follows
@@ -213,6 +223,169 @@ function watchPack(btn, goBtn) {
   pollTimer = setTimeout(tick, T.addPollMs);
 }
 
+// ------------------------------------------------------------------- movies
+//
+// The same sheet, the other half (T5.4). What makes movies different from
+// songs is that a TYPED NAME IS NOT AN ADD: the hub looks it up
+// (POST /movies/lookup, which writes nothing) and a grown-up picks the row
+// they meant out of a grid. The first hit for "peter rabbit" is not the one a
+// family means often enough to put on a six-year-old's board unasked, and the
+// grid is also where the age rating and the service are read before anyone
+// commits — that is the whole reason this is two steps and not one.
+//
+// A PASTED LINK skips all of it and goes straight to /movies/add, because the
+// address a parent copied out of Netflix is the answer already.
+//
+// The hub never serves video (D57): nothing here downloads anything and
+// nothing here touches the launch path. A film is a link the ERAgaze kiosk
+// opens, and adding one only ever writes a line in the family's catalog.
+
+// "on Netflix", "on Netflix · Disney+", or the plain truth. The row is worth
+// showing even when nobody streams it here — a parent may still want it on the
+// list, and the hub writes it pending rather than putting a dead tile up.
+function whereText(hit) {
+  const names = (Array.isArray(hit.providers) ? hit.providers : [])
+    .map((p) => p && p.name).filter(Boolean);
+  if (!names.length) return "not streaming here";
+  return "on " + names.slice(0, 2).join(" · ") + (names.length > 2 ? " +" + (names.length - 2) : "");
+}
+
+// The picked row as /movies/add's body. Only what the search actually FOUND is
+// sent: no link is invented for a title nobody could give one for (the hub
+// writes that pending), and an empty providerRef is left out rather than
+// stamping "we checked" on a check that found nothing.
+function pickBody(hit) {
+  const body = { title: hit.title, kind: hit.kind === "show" ? "show" : "movie" };
+  const link = (Array.isArray(hit.providers) ? hit.providers : [])
+    .map((p) => p && p.deepLink).find(Boolean);
+  if (link) body.url = link;
+  if (Number.isFinite(hit.year)) body.year = hit.year;
+  if (Number.isFinite(hit.tmdbId)) body.tmdbId = hit.tmdbId;
+  if (hit.ageRating) body.ageRating = hit.ageRating;
+  if (hit.providerRef && typeof hit.providerRef === "object" &&
+      !Array.isArray(hit.providerRef) && Object.keys(hit.providerRef).length)
+    body.providerRef = hit.providerRef;
+  body.addedBy = "search";                 // a pick is a search, however it is spelled
+  return body;
+}
+
+// POST /movies/add. Unlike a song, this answers when it is DONE — one small
+// file and a mirror of a folder the family already has locally — so the sheet
+// reports the outcome instead of following a status door.
+async function sendMovie(body, btn) {
+  if (btn) btn.disabled = true;
+  say("Sending that to New ERA…");
+  let res, out = {};
+  try {
+    res = await fetch("/movies/add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    if (btn) btn.disabled = false;
+    say("New ERA is not answering. Check that the hub is running, then try again.");
+    return;
+  }
+  try { out = await res.json(); } catch { /* an answer with no body: say the plain thing */ }
+  if (btn) btn.disabled = false;
+  if (!res.ok) {
+    // 400 bad-url / bad-id, 409 needs-local-drive / catalog-unreadable — every
+    // one of them already carries a sentence a parent can act on.
+    say(out.message || "New ERA could not add that film.");
+    return;
+  }
+  clearResults();                          // the question is answered: one add per sheet
+  const name = out.title || "That film";
+  if (out.pending) {
+    // The title is kept — a parent's list is not lost because nobody could
+    // find a link — but it is NOT drawn, so say so rather than sending them to
+    // look for a tile that is not there.
+    say(name + " is saved, but New ERA has no link to play it yet. Open the app it streams on and paste the film's address here.");
+    return;
+  }
+  // `mirrored:false` = the catalog is written in the family's folder but this
+  // device's shelf has not taken it yet, so the tile is not there to look at.
+  say(name + " is on the board."
+      + (out.mirrored === false ? " The board will catch up in a few minutes." : ""));
+}
+
+// The grid itself. Every cell is a plain <button> with NO .dwell and no
+// data-dwell-* attribute, exactly like the strip that opened the sheet: a gaze
+// parked on a poster fills nothing and picks nothing.
+function drawResults(rows, out) {
+  const card = sheet.querySelector(".sheet-card");
+  const before = sheet.querySelector("#sheetSay");
+  const grid = document.createElement("div");
+  grid.id = "sheetResults";
+  rows.forEach((hit, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.id = "sheetPick" + i; b.className = "sheet-result";
+    if (hit.poster) {
+      const img = document.createElement("img");
+      img.className = "sheet-poster"; img.src = hit.poster; img.alt = "";
+      // art that will not load is not a broken row: drop the picture, keep the
+      // name. The same rule the board's own poster-less tiles follow.
+      img.addEventListener("error", () => img.remove());
+      b.appendChild(img);
+    }
+    const t = document.createElement("span");
+    t.className = "sheet-title"; t.textContent = hit.title || "";
+    const y = document.createElement("span");
+    y.className = "sheet-year"; y.textContent = Number.isFinite(hit.year) ? String(hit.year) : "";
+    const w = document.createElement("span");
+    w.className = "sheet-where"; w.textContent = whereText(hit);
+    b.append(t, y, w);
+    b.addEventListener("click", () => sendMovie(pickBody(hit), b));
+    grid.appendChild(b);
+  });
+  card.insertBefore(grid, before);
+  results = grid;
+  // TMDB's terms want the credit wherever their art is shown, and the hub
+  // sends the exact sentence so this file never owns a second copy of it.
+  if (out && out.attribution) {
+    const c = document.createElement("div");
+    c.id = "sheetCredit"; c.className = "sheet-credit";
+    c.textContent = out.attribution;
+    card.insertBefore(c, before);
+  }
+}
+
+// POST /movies/lookup. It WRITES NOTHING — an empty grid is a 200 with a hint,
+// because a family with no key is not an error and neither is a provider
+// having a bad day. Both roads end at the paste box that already works.
+async function searchMovies(q, goBtn) {
+  clearResults();
+  goBtn.disabled = true;
+  say("Looking for “" + q + "”…");
+  let res, out = {};
+  try {
+    res = await fetch("/movies/lookup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+  } catch {
+    goBtn.disabled = false;
+    say("New ERA is not answering. Check that the hub is running, then try again.");
+    return;
+  }
+  try { out = await res.json(); } catch { /* an answer with no body */ }
+  goBtn.disabled = false;
+  if (!sheet) return;                      // the parent closed it while we waited
+  if (!res.ok) {
+    say(out.message || "New ERA could not look that up. Paste the film's link instead.");
+    return;
+  }
+  const rows = Array.isArray(out.results) ? out.results : [];
+  if (!rows.length) {
+    // out.hint is the hub's own sentence for "no key" and "no deep links": it
+    // names Settings and it names the paste box.
+    say(out.hint || "New ERA could not find anything called “" + q + "”. Paste the film's link instead.");
+    return;
+  }
+  drawResults(rows, out);
+  say(out.hint ? "Pick the one you mean. " + out.hint : "Pick the one you mean.");
+}
+
 // The sheet. Pointer-only, like the strip that opens it: no .dwell anywhere,
 // Escape and Close both dismiss it, and it is removed from the DOM on close.
 function openSheet(kind) {
@@ -229,25 +402,34 @@ function openSheet(kind) {
   card.append(h, hint);
 
   let input = null, goBtn = null;
-  if (kind === "songs") {
-    hint.textContent = "Paste a link to the song, or type its name and New ERA takes the first hit.";
+  const asks = kind === "songs" || kind === "movies";
+  if (asks) {
+    hint.textContent = kind === "songs"
+      ? "Paste a link to the song, or type its name and New ERA takes the first hit."
+      // Movies do NOT take the first hit: a name is searched and a grown-up
+      // picks the row, because the wrong "peter rabbit" on a child's board is
+      // a worse outcome than one more tap.
+      : "Paste a link to the film, or type its name and pick it from the list.";
     input = document.createElement("input");
     input.type = "text"; input.id = "sheetInput";
     input.setAttribute("autocomplete", "off");
-    input.placeholder = "https://…  or  twinkle twinkle";
+    input.placeholder = kind === "songs" ? "https://…  or  twinkle twinkle"
+                                         : "https://…  or  ada twist";
     card.appendChild(input);
-  } else if (kind === "movies") {
-    // Movies are Phase 5 (T5.4 wires this same sheet to the catalog writer).
-    // Until then the strip says so rather than pretending to work.
-    hint.textContent = "New ERA cannot add a movie from the board yet — that arrives with the movies work. Songs can be added from the Songs board today.";
   } else {
-    // ⇅ Arrange with nobody owning arrange mode yet (T4.5).
-    hint.textContent = "Moving the tiles around is not ready yet.";
+    // ⇅ Arrange on a board nobody owns arrange mode for. Today that is only
+    // the movies board: board-arrange.js claims the songs one (T4.5), and a
+    // film's place on the grid is not the same thing as its place in a list —
+    // the recipe ranks the exploration tile in a flow of its own and fills its
+    // cell last, so "the order the board shows" cannot be turned back into
+    // `rank` without a decision nobody has made yet. Saying so is better than
+    // a drag that moves a tile and then snaps back.
+    hint.textContent = "Moving the films around is not ready yet — a new film goes on at the end. New ERA chooses which film sits in the exploration tile.";
   }
 
   const row = document.createElement("div");
   row.className = "sheet-row";
-  if (kind === "songs") {
+  if (asks) {
     goBtn = document.createElement("button");
     goBtn.type = "button"; goBtn.id = "sheetGo"; goBtn.className = "sheet-btn go";
     goBtn.textContent = "Add it";
@@ -267,26 +449,38 @@ function openSheet(kind) {
 
   closeBtn.addEventListener("click", closeSheet);
   wrap.addEventListener("click", (e) => { if (e.target === wrap) closeSheet(); });
-  // Escape on the DOCUMENT, not the card: the movies/arrange sheets hold no
-  // input, so focus is still on the strip button that opened them.
+  // Escape on the DOCUMENT, not the card: the arrange sheet holds no input, so
+  // focus is still on the strip button that opened it — and on the two that do
+  // hold one, a parent may well be looking at the search grid rather than the
+  // box when they give up.
   document.addEventListener("keydown", onKey, true);
-  if (kind === "songs") {
+  if (asks) {
     const submit = () => {
       const raw = input.value.trim();
       // The hub's own words for an empty add, said here so the round trip is
       // not spent on a blank box.
-      if (!raw) { say("Paste a link to the song, or type its name."); return; }
-      sendSong(raw, goBtn);
+      if (!raw) {
+        say(kind === "songs" ? "Paste a link to the song, or type its name."
+                             : "Paste a link to the film, or type its name.");
+        return;
+      }
+      if (kind === "songs") sendSong(raw, goBtn);
+      // A pasted address is the answer already; a name is a question.
+      else if (isLink(raw)) sendMovie({ url: raw }, goBtn);
+      else searchMovies(raw, goBtn);
     };
     goBtn.addEventListener("click", submit);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-    // What the shelf already knows, so a result left over from an earlier add
-    // is never reported as this one's.
-    seenWhen = null;
-    fetch("/music/add/status", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((st) => { seenWhen = st && st.last ? st.last.when : null; })
-      .catch(() => {});
+    if (kind === "songs") {
+      // What the shelf already knows, so a result left over from an earlier add
+      // is never reported as this one's. Movies need none of this: their add
+      // answers when it is done.
+      seenWhen = null;
+      fetch("/music/add/status", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((st) => { seenWhen = st && st.last ? st.last.when : null; })
+        .catch(() => {});
+    }
     try { input.focus(); } catch { /* a kiosk with no keyboard focus: harmless */ }
   }
   return wrap;

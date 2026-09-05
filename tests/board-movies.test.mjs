@@ -315,3 +315,279 @@ test("49155 failure is graceful: calm flag, no marker, no event, board stays usa
     await ctx.close();
   } finally { await browser.close(); }
 });
+
+// ---------------------------------------------------------------------------
+// T5.4 — "+ Add" on the movies board: paste a link, or type a name and pick a
+// row out of a search grid.
+//
+// The strip and its sheet are T4.4's (board-partner.js); this is the movies
+// half of it, and everything the amendment costs is re-proved here rather than
+// assumed: the grid a grown-up picks from is POINTER-ONLY, so a gaze parked on
+// a poster for longer than the board's longest hold fills nothing, and the
+// board underneath is asleep while the sheet is up.
+//
+// D57 is the other thing under test: the hub never serves video, so nothing in
+// this feature may change what the board sends ERAgaze. The launch payload is
+// pinned BYTE for byte below, header included — a Content-Type on that POST
+// would turn a CORS simple request into a preflight the native listener does
+// not answer, and the family's films would stop opening.
+//
+// Hermetic: /movies/add and /movies/lookup are stubbed at the network layer,
+// so no key is spent, nothing leaves the machine, and TMDB is never called.
+const QUIET_CLOTHING = { building: false, ingesting: null, photos: 3, cataloged: 3, aiConfigured: true };
+const QUIET_CONTENT = { mode: "local", local: true, skipped: null, building: false, job: null,
+                        queued: [], jobs: [], lastScan: null };
+const TMDB_CREDIT = "Poster art from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.";
+
+// What movies-lookup.js hands back (its own documented shape): a show that
+// streams somewhere with a real deep link, and a film the family can see is on
+// Disney+ but that Watchmode gave no link for — the "found on Netflix, no
+// link" half of the design, which must still be addable.
+const HITS = [
+  { title: "Ada Twist, Scientist", year: 2021, tmdbId: 120001, tmdbType: "tv", kind: "show",
+    poster: "https://image.tmdb.org/t/p/w500/ada.jpg", ageRating: "TV-Y",
+    providers: [{ name: "Netflix", slug: "netflix", providerId: 8,
+                  deepLink: "https://www.netflix.com/watch/81028771" }],
+    providerRef: { watchmode: 1553527 }, similar: [155, 156] },
+  { title: "Ada Lake", year: 2018, tmdbId: 120002, tmdbType: "movie", kind: "movie",
+    poster: null, ageRating: null,
+    providers: [{ name: "Disney+", slug: "disney", providerId: 337, deepLink: null }],
+    providerRef: {} },
+];
+
+// A movies board with the strip's hub doors stubbed. `dial` turns what the hub
+// answers; `posts` collects what the sheet actually sent.
+async function sheetPage(browser, dial) {
+  const d = Object.assign({
+    add: { status: 200, body: { ok: true, id: "ada-twist-scientist", title: "Ada Twist, Scientist",
+                                kind: "show", rank: 4, pending: false, mirrored: true,
+                                poster: "posters/ada-twist-scientist.jpg", attribution: TMDB_CREDIT } },
+    lookup: { status: 200, body: { ok: true, provider: "watchmode", region: "US",
+                                   results: HITS, hint: "", attribution: TMDB_CREDIT } },
+  }, dial || {});
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+  const adds = [], lookups = [], launches = [];
+  await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+  await ctx.route("**/movie-event", (r) => r.fulfill({ status: 204, body: "" }));
+  await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+  await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+  await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+  await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+  await ctx.route("**/movies/*.jpg", (r) => r.fulfill({ status: 200, contentType: "image/jpeg", body: JPG }));
+  // the search grid's posters come from TMDB's image host in the real world;
+  // here they come from nowhere at all.
+  await ctx.route("https://image.tmdb.org/**", (r) => r.fulfill({ status: 200, contentType: "image/jpeg", body: JPG }));
+  await ctx.route("**/recipes/movies.json", (r) => {
+    const headers = { "Content-Type": "application/json", "ETag": ETAG, "Cache-Control": "no-cache" };
+    if (r.request().method() === "HEAD") { r.fulfill({ status: 200, headers, body: "" }); return; }
+    r.fulfill({ status: 200, headers, body: JSON.stringify(FIXTURE) });
+  });
+  await ctx.route("**/movies/lookup", (r) => {
+    lookups.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
+    r.fulfill({ status: d.lookup.status, contentType: "application/json", body: JSON.stringify(d.lookup.body) });
+  });
+  await ctx.route("**/movies/add", (r) => {
+    adds.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
+    r.fulfill({ status: d.add.status, contentType: "application/json", body: JSON.stringify(d.add.body) });
+  });
+  await ctx.route("http://127.0.0.1:49155/app/launch", (r) => {
+    launches.push({ raw: r.request().postData(), type: r.request().headers()["content-type"] });
+    r.fulfill({ status: 200, body: "" });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    window.__activateCount = 0;
+    document.addEventListener("dwell:activate", () => { window.__activateCount++; }, true);
+    window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                           pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300 };
+  });
+  await page.goto(BASE, { waitUntil: "load" });
+  await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
+  return { ctx, page, adds, lookups, launches, errors };
+}
+
+const said = (page) => page.locator("#sheetSay").textContent();
+
+test("movies sheet: a pasted link goes to /movies/add as {url}, and the tile is reported", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, adds, errors } = await sheetPage(browser, {
+      add: { status: 200, body: { ok: true, id: "moana", title: "Moana", kind: "movie",
+                                  rank: 7, pending: false, mirrored: true, poster: null, attribution: null } },
+    });
+    await page.locator("#stripAdd").click();
+    await page.locator("#partnerSheet").waitFor();
+    assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the sheet is pointer-only");
+    await page.fill("#sheetInput", "  https://www.disneyplus.com/browse/entity-abc  ");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Moana is on the board/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.equal(adds.length, 1, "one POST /movies/add");
+    assert.deepEqual(adds[0].body, { url: "https://www.disneyplus.com/browse/entity-abc" },
+                     "a pasted link goes as {url}, trimmed — and nothing is searched");
+    assert.ok(adds[0].type.startsWith("application/json"),
+              "JSON, so the hub's own-door check lets it through");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies sheet: a typed name is SEARCHED, and the answers render as a grid a grown-up picks from", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, lookups, adds, errors } = await sheetPage(browser);
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "  ada twist  ");
+    await page.locator("#sheetGo").click();
+    await page.locator("#sheetResults .sheet-result").first().waitFor({ timeout: 4000 });
+
+    assert.equal(lookups.length, 1, "one POST /movies/lookup");
+    assert.deepEqual(lookups[0].body, { query: "ada twist" }, "a name goes as {query}, trimmed");
+    assert.ok(lookups[0].type.startsWith("application/json"), "JSON, so the own-door check lets it through");
+    assert.equal(adds.length, 0, "a search writes NOTHING — the pick does that");
+
+    const cells = page.locator("#sheetResults .sheet-result");
+    assert.equal(await cells.count(), HITS.length, "one cell per answer");
+    const first = cells.nth(0);
+    assert.equal(await first.locator(".sheet-title").textContent(), "Ada Twist, Scientist");
+    assert.equal(await first.locator(".sheet-year").textContent(), "2021");
+    assert.match(await first.locator(".sheet-where").textContent(), /Netflix/);
+    assert.equal(await first.locator("img.sheet-poster").count(), 1, "the poster TMDB gave us");
+    // a row with no art is still a row — the name is the tile
+    const second = cells.nth(1);
+    assert.equal(await second.locator("img.sheet-poster").count(), 0, "no art, no broken image");
+    assert.equal(await second.locator(".sheet-title").textContent(), "Ada Lake");
+    // TMDB's terms: the credit rides with the posters, in the hub's own words
+    assert.equal(await page.locator("#sheetCredit").textContent(), TMDB_CREDIT);
+    // and the grid is furniture to a gaze, exactly like the strip that opened it
+    assert.equal(await page.locator("#sheetResults .dwell").count(), 0, "no gaze target in the grid");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies sheet: picking a row adds THAT title, with the provenance the search found", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, adds, errors } = await sheetPage(browser);
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "ada twist");
+    await page.locator("#sheetGo").click();
+    await page.locator("#sheetResults .sheet-result").first().waitFor({ timeout: 4000 });
+    await page.locator("#sheetPick0").click();
+    await page.waitForFunction(() => /is on the board/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.equal(adds.length, 1, "one POST /movies/add for the row that was picked");
+    assert.deepEqual(adds[0].body, {
+      url: "https://www.netflix.com/watch/81028771",
+      title: "Ada Twist, Scientist", kind: "show", year: 2021, tmdbId: 120001,
+      ageRating: "TV-Y", providerRef: { watchmode: 1553527 }, addedBy: "search",
+    }, "the pick carries the deep link and the provenance, and nothing else");
+    assert.ok(adds[0].type.startsWith("application/json"));
+    // the grid is gone once a row is picked: one add per sheet
+    assert.equal(await page.locator("#sheetResults .sheet-result").count(), 0, "the grid closes behind the pick");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies sheet: a row nobody can open is saved anyway, and the sheet says what is missing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, adds } = await sheetPage(browser, {
+      add: { status: 200, body: { ok: true, id: "ada-lake", title: "Ada Lake", kind: "movie",
+                                  rank: 8, pending: true, mirrored: true, poster: null, attribution: null } },
+    });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "ada twist");
+    await page.locator("#sheetGo").click();
+    await page.locator("#sheetPick1").waitFor({ timeout: 4000 });
+    await page.locator("#sheetPick1").click();
+    await page.waitForFunction(() => /paste/i.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.deepEqual(adds[0].body, {
+      title: "Ada Lake", kind: "movie", year: 2018, tmdbId: 120002, addedBy: "search",
+    }, "no link, so none is invented — and no empty provenance is sent either");
+    assert.match(await said(page), /Ada Lake/, "the film the parent picked is named back to them");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies sheet: nothing found, and no key at all, both end at the paste box", async () => {
+  const browser = await chromium.launch();
+  try {
+    const none = "New ERA can look films up by name once a grown-up adds a TMDB key in Settings. " +
+                 "Until then, paste the film's link and the tile still goes up.";
+    const { ctx, page, adds } = await sheetPage(browser, {
+      lookup: { status: 200, body: { ok: true, provider: "none", region: "US", results: [], hint: none } },
+    });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "ada twist");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction((want) => document.getElementById("sheetSay").textContent.includes(want),
+                               none, { timeout: 4000 });
+    assert.equal(adds.length, 0, "an empty grid writes nothing");
+    assert.equal(await page.locator("#sheetResults .sheet-result").count(), 0, "and draws no rows");
+    assert.equal(await page.locator("#sheetGo").isDisabled(), false, "the parent can try again straight away");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies sheet: a gaze parked on the search grid activates nothing, and the board beneath is asleep", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page } = await sheetPage(browser);
+    const tile = page.locator(".board-area .tile.dwell").first();
+    await tile.waitFor({ timeout: 8000 });
+    const under = await tile.boundingBox();
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "ada twist");
+    await page.locator("#sheetGo").click();
+    await page.locator("#sheetPick0").waitFor({ timeout: 4000 });
+
+    const frozen = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      doorDwell: !!document.querySelector(".bardoor.dwell"),
+      sheetDwellAttrs: [...document.querySelectorAll("#partnerSheet, #partnerSheet *")]
+        .flatMap((el) => [...el.attributes].map((a) => a.name))
+        .filter((n) => n.startsWith("data-dwell")),
+    }));
+    assert.equal(frozen.dwellTiles, 0, "with the grid up, not one tile is a gaze target");
+    assert.equal(frozen.disabled, frozen.tiles, "every tile says so in the attribute dwell.js reads");
+    assert.equal(frozen.doorDwell, true, "the way out of the board is never taken away");
+    assert.deepEqual(frozen.sheetDwellAttrs, [], "nothing in the sheet carries a dwell attribute");
+
+    const box = await page.locator("#sheetPick0").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(2600);        // > the longest hold on the board (2400ms door)
+    assert.equal(await page.evaluate(() => window.__activateCount), 0, "a parked gaze never picks a row");
+    assert.equal(await page.locator(".dwell-active").count(), 0, "and no dwell fill starts on the grid");
+    await page.mouse.move(under.x + under.width / 2, under.y + under.height / 2);
+    await page.waitForTimeout(2600);
+    assert.equal(await page.evaluate(() => window.__activateCount), 0, "nor on the film beneath it");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// D57: the hub never serves video, so the sheet may not have changed one byte
+// of what leaves for ERAgaze. Pinned literally — the body AND the absent
+// Content-Type, which is what keeps this a CORS simple request.
+test("the launch payload is byte-identical: the sheet changed nothing about how a film opens", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, launches } = await sheetPage(browser);
+    await page.locator('.tile.type-movie:has-text("Moana")').click();
+    await page.waitForSelector(".tile.watching", { timeout: 4000 });
+    assert.equal(launches.length, 1, "one launch POST");
+    assert.equal(launches[0].raw,
+      '{"url":"https://www.disneyplus.com/play/moana-uuid","watch":true,"titleId":"moana"}',
+      "the launch body, byte for byte");
+    assert.ok(!/application\/json/.test(launches[0].type || ""),
+      "no JSON content-type: a preflight ERAgaze does not answer would kill every film");
+    await ctx.close();
+  } finally { await browser.close(); }
+});

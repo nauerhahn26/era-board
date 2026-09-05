@@ -2,8 +2,20 @@
 //
 // The strip (board-partner.js, T4.4) fires a cancelable `board:arrange` on
 // window; claiming it with preventDefault() is how this module says "I own
-// arrange mode on this board". Unclaimed — the movies board today — the strip
-// says so instead of pretending to work. T5.4 claims it for movies.
+// arrange mode on this board". Unclaimed — the movies board — the strip says
+// so instead of pretending to work.
+//
+// WHY MOVIES ARE NOT CLAIMED HERE (found while building the movies sheet,
+// T5.4). Everything below rests on one assumption that is true of songs and
+// false of films: the order the board SHOWS is the order the hub RANKS. The
+// songs grid fills its cells row by row, so "the running order" is what a
+// parent can see. The movies grid does not — server.js's moviesRecipe ranks
+// the exploration tile in a list of its own and fills its cell (2,4) last, and
+// the catalog also holds titles that are drawn nowhere at all (no link yet, or
+// a show whose episodes are not harvested). So a swap of two visible films
+// cannot be turned back into `rank` without deciding what dragging a film onto
+// the exploration tile MEANS — a design question, and not one to answer inside
+// a drag handler.
 //
 // WHAT ARRANGE MODE COSTS THE BOARD, and why it is written this way:
 //
@@ -43,7 +55,7 @@
 // music-add.js's order() refuses a partial list rather than half-apply one.
 // A refusal is undone on screen and shown in the hub's own words.
 
-// Where each board's order goes. Movies arrive in T5.4 with their own writer.
+// Where each board's order goes. There is no movies writer: see the header.
 const ENDPOINT = { songs: "/music/order" };
 
 const cellOf = (b) => ({ r: b.row || 1, c: b.col || 1 });

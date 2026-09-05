@@ -76,6 +76,27 @@ body{background:var(--paper); color:var(--ink);
 .sheet-btn[disabled]{opacity:.55; cursor:default}
 .sheet-say{margin-top:14px; font-size:19px; line-height:1.3; min-height:1.3em}
 
+/* the movies search grid (T5.4): the rows a grown-up picks the right "peter
+   rabbit" out of. Buttons, not tiles — nothing here is a gaze target, so the
+   sizing answers to a finger and a mouse only. auto-fill keeps three posters
+   across on the card and drops to one on a phone-width kiosk. */
+#sheetResults{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+              gap:12px; margin-top:16px; max-height:46vh; overflow:auto}
+.sheet-result{display:flex; flex-direction:column; align-items:stretch; gap:2px;
+              border:2px solid var(--line, #B9C7CC); border-radius:12px; padding:8px;
+              background:#FFFFFF; color:var(--ink, #17272E); font-family:var(--font);
+              text-align:left; cursor:pointer}
+.sheet-result:hover{border-color:var(--teal-deep, #0B4E58); background:#F2F7F8}
+.sheet-result[disabled]{opacity:.55; cursor:default}
+.sheet-poster{width:100%; aspect-ratio:2 / 3; object-fit:cover; border-radius:8px;
+              margin-bottom:6px; background:#E3EAEC}
+.sheet-title{font-size:17px; font-weight:700; line-height:1.2}
+.sheet-year{font-size:15px; color:#4A6069}
+/* the one line that answers "can we actually watch this tonight?" */
+.sheet-where{font-size:15px; font-weight:700; color:var(--teal-deep, #0B4E58)}
+/* TMDB's terms: the credit rides with their art, in the hub's own wording. */
+.sheet-credit{margin-top:10px; font-size:13px; line-height:1.3; color:#4A6069}
+
 /* ---- arrange mode (T4.5): the songs stop being doors and become things to
    move. The dashed teal edge is the whole affordance — a parent can see which
    tiles a finger may pick up, and touch-action:none replaces what the .dwell
