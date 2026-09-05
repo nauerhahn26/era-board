@@ -616,7 +616,14 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   if (music) music.onState = applyPlaying;
 
   // --- board render ---
+  // T4.5 arrange mode: while a grown-up is moving the songs around, the tiles
+  // are furniture, not doors. board-arrange.js owns the flag; it is checked
+  // here rather than by unbinding the handler so a click that was already in
+  // flight when the mode opened cannot slip through.
+  let arranging = false;
+
   function onTile(btn, el) {
+    if (arranging) return;   // a drag is not a pick
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
     const type = (btn.type || "").toLowerCase();
@@ -706,6 +713,12 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
       const { el, fit } = makeTile(btn, w * cs + gap * (cs - 1), h * rs + gap * (rs - 1), contentDwellMs);
       el.addEventListener("click", () => onTile(btn, el));
       if ((btn.type || "").toLowerCase() === "song" && btn.song_id) songEls.set(btn.song_id, el);
+      // T4.5: the grid's song DOORS are the tiles arrange mode may move (the
+      // hero on a song's own page carries the same song_id and no `load`, and
+      // moving it would mean nothing). The id rides on the tile so a drag never
+      // has to walk the recipe again to name what it just moved.
+      if ((btn.type || "").toLowerCase() === "song" && btn.song_id && btn.load != null)
+        el.dataset.arrangeId = btn.song_id;
       if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
         movieEls.set(launchKey(btn), el);
       place(el, rs, cs);
@@ -724,6 +737,11 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   return {
     render,
     session,
+    // T4.5: what board-arrange.js needs and nothing more — the grid it drags
+    // tiles inside, and the switch that turns every tile into furniture.
+    area,
+    setArranging(on) { arranging = !!on; return arranging; },
+    isArranging() { return arranging; },
     // deep-link/testing hook: jump to a board id then render.
     show(id) { session.navigate(id); render(); return session.current; },
     home() { session.home(); render(); },

@@ -76,6 +76,36 @@ body{background:var(--paper); color:var(--ink);
 .sheet-btn[disabled]{opacity:.55; cursor:default}
 .sheet-say{margin-top:14px; font-size:19px; line-height:1.3; min-height:1.3em}
 
+/* ---- arrange mode (T4.5): the songs stop being doors and become things to
+   move. The dashed teal edge is the whole affordance — a parent can see which
+   tiles a finger may pick up, and touch-action:none replaces what the .dwell
+   class used to give them (board-arrange.js takes that class away so dwell.js's
+   long-press rescue cannot click a song at the end of a drag). ---- */
+.board-area.arranging .tile{cursor:grab}
+/* teal, not white: a song tile IS a white photo plate, so a white dash on it is
+   an invisible affordance (seen in the T4.5 recording). */
+.board-area.arranging .tile[data-arrange-id]{touch-action:none;
+      outline:5px dashed var(--teal,#0F7C8A); outline-offset:-7px}
+.board-area.arranging .tile.dragging{cursor:grabbing; z-index:80; opacity:.88;
+      box-shadow:0 12px 30px rgba(23,39,46,.45)}
+.board-area.arranging .tile.drop-target{outline:8px solid var(--teal,#0F7C8A); outline-offset:-8px}
+
+/* the arrange pill: the wardrobe/book footer treatment, and pointer-events:none
+   so it can never swallow the end of a drag that finishes over it. */
+#arrangeNote{position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:70vw;
+      background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+      padding:8px 18px; border-radius:12px; z-index:80; font-family:var(--font);
+      text-align:center; pointer-events:none}
+/* it is the last strip added to the page, so it stacks on top of whichever of
+   the standing footers happen to be showing (the #contentNote ladder). */
+#ttsWarn.show ~ #arrangeNote,
+#wardrobeNote.show ~ #arrangeNote,
+#contentNote.show ~ #arrangeNote{bottom:60px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #arrangeNote,
+#ttsWarn.show ~ #contentNote.show ~ #arrangeNote,
+#wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:114px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:168px}
+
 /* ---- board grid: fills the whole remaining area with wide rectangles ---- */
 .board-area{flex:1 1 auto; width:100%; display:grid;
             place-content:center; overflow:hidden}

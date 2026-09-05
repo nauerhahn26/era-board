@@ -5,6 +5,7 @@
 import { createSession } from "./board-model.js";
 import { mountBoard, mountDoorBar } from "./board-render.js";
 import { mountPartnerStrip } from "./board-partner.js";
+import { mountArrange } from "./board-arrange.js";
 import { createMusicPlayer } from "./music-player.js";
 
 const baseSpeech = window.Speech || {
@@ -416,7 +417,12 @@ async function boot() {
   // here, after the bar exists, because the recipe name is board.js's to know.
   // Touch/click only — board-partner.js gives it no .dwell, so her gaze cannot
   // reach it and the door stays the bar's one dwell target.
-  mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME });
+  const partner = mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME });
+
+  // "⇅ Arrange" (T4.5): the strip only announces the tap — this claims it and
+  // owns the mode where a finger moves the songs. On a board nobody arranges
+  // yet (movies, until T5.4) it mounts nothing and the strip says so.
+  mountArrange({ api, partner, recipe: RECIPE_NAME });
 
   // what-next deep link (movies spec §5): ?board=<id> opens the session on that
   // board — how ERAgaze reveals the picker on a show's "what next?" page after
