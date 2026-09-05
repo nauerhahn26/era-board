@@ -67,9 +67,13 @@ async function open(browser, recipe, dial) {
     try { localStorage.clear(); } catch {}
     window.__activateCount = 0;
     document.addEventListener("dwell:activate", () => { window.__activateCount++; }, true);
+    // `reload` is board-partner.js's own seam (bug 3): a landed add refreshes
+    // the board as the sheet closes, and a suite has to be able to count that
+    // without the page it is asserting on going away underneath it.
+    window.__reloads = 0;
     window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
                            pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300,
-                           addPollMs: 120 };
+                           addPollMs: 120, reload: () => { window.__reloads++; } };
   });
   await page.goto(BASE + (recipe ? "?recipe=" + recipe : ""), { waitUntil: "load" });
   await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
@@ -174,6 +178,101 @@ test("a typed name goes as a name, and the landed song is reported", async () =>
     assert.deepEqual(posts[0].body, { query: "twinkle twinkle" }, "a name goes as {query}, trimmed");
     stat = { ...IDLE_ADD, running: null, last: { ok: true, id: "twinkle-twinkle", title: "Twinkle Twinkle", rank: 9, error: "", when: "now" } };
     await page.waitForFunction(() => /Twinkle Twinkle is on the board/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Bug 3 (VM QA 9/5): the sheet said "Moana is on the board." and the grid
+// behind it stayed black — forty seconds later, still black; only F5 showed the
+// tile. board.js's watcher is right to be slow (it waits for a changed ETag AND
+// a minute of idle, so a rebuilt board never yanks the child mid-tap), but a
+// grown-up's OWN add is a different event: they are standing there looking at
+// the board. So a landed add reloads — as the sheet CLOSES, because reloading
+// under an open sheet would take it out of the hand still holding it.
+test("a landed song refreshes the board — on close, and not one moment before", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: true, when: "now" } };
+    await page.waitForFunction(() => /Moana is on the board/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.match(await page.locator("#sheetSay").textContent(), /Close this and it is there/,
+                 "and the sheet says where the tile will be");
+    assert.equal(await page.evaluate(() => window.__reloads), 0,
+                 "nothing reloads while the grown-up still has the sheet open");
+    assert.equal(await page.locator("#partnerSheet").isVisible(), true, "…which is still there");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 1,
+                 "closing it asks for the board again, so the tile is there when they look");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("a song this device's shelf has not taken yet says so, and reloads nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    // the song is in the family's Drive folder, but the mirror has not carried
+    // it to this device's shelf: there is no tile to reload for, and the sheet
+    // has always said so honestly.
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: false, when: "now" } };
+    await page.waitForFunction(() => /catch up in a few minutes/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 0,
+                 "no reload: it would draw the same board over the same board");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Bug 5's other half. The hub keeps yt-dlp's line for whoever is fixing it
+// (`last.error`) and writes the family's sentence beside it (`last.message`);
+// this sheet shows the second one and never the first. On the VM a parent got
+// "New ERA could not add that song. ERROR: [youtube] XqZsoesa55w: Sign in to
+// confirm you're not a bot. Use --cookies-from-browser or --cookies for the
+// authentication. See https://…" — truncated mid-word.
+test("a failed add shows the hub's sentence, never yt-dlp's, and reloads nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const plain = "YouTube would not let New ERA fetch that one from here. Try another link, or add the song from an MP3 in the family's music folder.";
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=XqZsoesa55w");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    stat = { ...IDLE_ADD, last: { ok: false, id: null, title: "", when: "now", message: plain,
+                                  error: "could not look that up: ERROR: [youtube] XqZsoesa55w: Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-t" } };
+    await page.waitForFunction((want) => document.getElementById("sheetSay").textContent.includes(want),
+                               "YouTube would not let", { timeout: 4000 });
+    const said = await page.locator("#sheetSay").textContent();
+    assert.equal(said, plain, "the hub's own sentence, whole and alone");
+    assert.doesNotMatch(said, /ERROR:|http|--|cookies/, "nothing from yt-dlp's mouth reaches the family");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 0, "and a failure reloads nothing");
+    assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
 });

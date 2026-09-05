@@ -39,6 +39,7 @@ let sheet = null;
 let pollTimer = null;
 let seenWhen = null;   // /music/add/status's `last.when` as it was BEFORE this add
 let frozen = [];       // the dwell targets this sheet put to sleep
+let landed = false;    // an add really arrived on THIS device while the sheet was up
 
 function onKey(e) { if (e.key === "Escape") closeSheet(); }
 
@@ -75,12 +76,37 @@ function thawBoard() {
   try { if (window.Dwell && window.Dwell.suppress) window.Dwell.suppress(600); } catch { /* dwell.js absent in a bare page */ }
 }
 
+// A grown-up's own add is not the same event as a board that rebuilt itself.
+// board.js's watcher deliberately sits on a changed recipe until the child has
+// been idle a minute (T.idleMs) and only looks every five (T.pollMs), so a
+// board is never yanked out from under a tap — but the parent who just pressed
+// "Add it" is standing there LOOKING at the grid, waiting for the tile. On the
+// VM (9/5) the sheet said "Moana is on the board." over four black cells, and
+// forty seconds later they were still black: only F5 showed it.
+//
+// So an add that really landed on this device reloads the page — on CLOSE, and
+// never before: reloading while the sheet is up would pull it out from under
+// the hand still holding it. `mirrored:false` is not a landing (the tile
+// honestly is not here yet, and the sheet says so), and neither is a failure.
+//
+// The reload goes through window.__boardTest.reload when a test sets one — the
+// same dial-overriding idiom as T above, because a suite has to be able to see
+// the reload asked for without the page under it going away.
+function reloadBoard() {
+  if (typeof T.reload === "function") { T.reload(); return; }
+  location.reload();
+}
+
 function closeSheet() {
   clearTimeout(pollTimer); pollTimer = null;
   document.removeEventListener("keydown", onKey, true);
   results = null;                     // it went with the card
   if (sheet) { sheet.remove(); sheet = null; }
   thawBoard();
+  // Last, with the sheet already gone: whatever closed it — Close, Escape, the
+  // backdrop — the grown-up is looking at the board again, so give them the
+  // board with the new tile on it.
+  if (landed) { landed = false; reloadBoard(); }
 }
 
 // The sheet's one line of news. Everything a parent reads here comes from the
@@ -116,10 +142,20 @@ function watchAdd() {
       say("New ERA is fetching " + who + " — " + st.running.phase + ".");
     } else if (st && st.last && st.last.when !== seenWhen) {
       // `mirrored:false` = the song is in the family's folder but this device's
-      // shelf has not taken it yet, so the tile is not there to look at.
-      if (st.last.ok) say((st.last.title || "That song") + " is on the board."
-        + (st.last.mirrored === false ? " The board will catch up in a few minutes." : ""));
-      else say("New ERA could not add that song. " + (st.last.error || ""));
+      // shelf has not taken it yet, so the tile is not there to look at — and
+      // nothing to reload for either.
+      if (st.last.ok) {
+        const here = st.last.mirrored !== false;
+        if (here) landed = true;
+        say((st.last.title || "That song") + " is on the board."
+          + (here ? " Close this and it is there." : " The board will catch up in a few minutes."));
+      }
+      // The hub's sentence for THIS failure (music-add.js plainly()), never the
+      // line yt-dlp printed: VM QA 9/5 put "ERROR: [youtube] …: Sign in to
+      // confirm you're not a bot. Use --cookies-from-browser …" on the sheet,
+      // truncated mid-word. `last.error` still carries that for whoever is
+      // fixing the hub; it is not for this screen.
+      else say(st.last.message || "New ERA could not add that song. Try again, or try another link.");
       return;                       // the answer is in: stop polling
     }
     if (Date.now() < until) pollTimer = setTimeout(tick, T.addPollMs);
@@ -304,9 +340,12 @@ async function sendMovie(body, btn) {
     return;
   }
   // `mirrored:false` = the catalog is written in the family's folder but this
-  // device's shelf has not taken it yet, so the tile is not there to look at.
+  // device's shelf has not taken it yet, so the tile is not there to look at —
+  // and there is nothing for the reload on close to show.
+  const here = out.mirrored !== false;
+  if (here) landed = true;
   say(name + " is on the board."
-      + (out.mirrored === false ? " The board will catch up in a few minutes." : ""));
+      + (here ? " Close this and it is there." : " The board will catch up in a few minutes."));
 }
 
 // The grid itself. Every cell is a plain <button> with NO .dwell and no
