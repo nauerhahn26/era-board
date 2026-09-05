@@ -50,7 +50,13 @@ test("footer follows the wardrobe work and offers the see-them tap", async () =>
 
     const note = page.locator("#wardrobeNote");
     assert.equal(await note.isVisible(), false, "quiet wardrobe: no footer");
-    assert.equal(await page.locator(".msgbar > *").count(), 1, "the bar carries the door and nothing else");
+    // AMENDED 9/4 (T4.4): the bar may carry one pointer-only #partnerStrip on
+    // the songs and movies boards. This is her outfit board, so the door is
+    // still the whole bar — and on every board the door is its only dwell
+    // target, which is the half of the rule that never moves.
+    assert.equal(await page.locator(".msgbar > :not(#partnerStrip)").count(), 1, "the bar carries the door and nothing else");
+    assert.equal(await page.locator(".msgbar #partnerStrip").count(), 0, "no partner strip on her outfit board");
+    assert.equal(await page.locator(".msgbar .dwell").count(), 1, "the door is the bar's only gaze target");
     assert.equal(await page.evaluate(() => document.getElementById("wardrobeNote").classList.contains("dwell")), false, "footer is never a gaze target");
 
     const noteSays = (re) => page.waitForFunction((src) => new RegExp(src).test(document.getElementById("wardrobeNote").textContent), re.source, { timeout: 4000 });

@@ -145,12 +145,22 @@ test("tapping a nav door is SILENT; the bar carries the door and nothing else", 
         speak: !!document.querySelector("#barSpeak"),
         clear: !!document.querySelector("#barClear"),
         chips: !!document.querySelector(".chips"),
+        dwell: [...b.querySelectorAll(".dwell")].map((el) => el.id || el.className),
         hPct: +((b.getBoundingClientRect().height / innerHeight) * 100).toFixed(1),
       };
     });
     assert.ok(!bar.speak && !bar.clear, "no Speak/Clear button anywhere");
     assert.ok(!bar.chips, "no chips strip");
-    assert.deepEqual(bar.kids, ["barDoor"], "the door is the bar's only child");
+    // AMENDED 9/4 (T4.4, dad's amendment): the bar may also carry exactly ONE
+    // pointer-only #partnerStrip — the grown-up's "+ Add / ⇅ Arrange" on the
+    // songs and movies boards (board-partner-strip.test.mjs pins the whole of
+    // it). This board is hers, so it has none; and whatever the bar carries,
+    // the door stays its ONLY dwell target. That half of the rule is law.
+    assert.ok(bar.kids.filter((k) => k === "partnerStrip").length <= 1, "at most one partner strip");
+    assert.deepEqual(bar.kids.filter((k) => k !== "partnerStrip"), ["barDoor"],
+                     "the door is the bar's only child besides the partner strip");
+    assert.equal(bar.kids.includes("partnerStrip"), false, "her outfit board carries no partner strip");
+    assert.deepEqual(bar.dwell, ["barDoor"], "the door is the bar's only dwell target");
     // "the header is still too big" — the strip may not exceed 9% of the screen
     assert.ok(bar.hPct <= 9.1, `bar is a slim strip (was ${bar.hPct}% of the viewport)`);
     await ctx.close();

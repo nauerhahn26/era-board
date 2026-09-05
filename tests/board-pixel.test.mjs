@@ -126,10 +126,18 @@ function MEASURE() {
   // SLIM BAR (dad 9/2 "the header is still too big"): the message bar is a
   // strip, never more than 9% of the screen, and it carries the exit door and
   // nothing else — no Speak, no Clear, no chips.
+  // AMENDED 9/4 (T4.4, dad's amendment): one pointer-only #partnerStrip may
+  // ride at the far end of the bar on the songs and movies boards — the
+  // grown-up's "+ Add / ⇅ Arrange". It is not a BAR_EXTRA. What is NOT allowed,
+  // ever, is a second dwell target in the bar: the door is the only one, so the
+  // strip is audited for that instead (board-partner-strip.test.mjs pins the
+  // rest of it, including that her outfit board carries no strip at all).
   const barEl = document.querySelector(".msgbar");
   const barPct = barEl ? +((barEl.getBoundingClientRect().height / vh) * 100).toFixed(1) : null;
   const barExtras = barEl ? [...barEl.children].map((el) => el.id || String(el.className))
-                                               .filter((n) => n !== "barDoor") : [];
+                                               .filter((n) => n !== "barDoor" && n !== "partnerStrip") : [];
+  const barStrips = barEl ? barEl.querySelectorAll("#partnerStrip").length : 0;
+  const barDwellExtras = barEl ? [...barEl.querySelectorAll(".dwell")].map(lbl).filter((n) => n !== "barDoor") : [];
   // BIG PICTURES (dad 9/2 "change bottoms image for bottoms is too small"):
   // every pictogram tile shows a real picture, never a speck above the word.
   const iconSqueezed = [];
@@ -156,7 +164,7 @@ function MEASURE() {
     minGap: rects.length > 1 ? +minGap.toFixed(1) : null, minPair,
     warnCount: warns.length, warns: warns.slice(0, 6),
     labelOverflow, fontViolations, breakRules, clipped, subFloor, fillPct, photoShares,
-    barPct, barExtras, iconSqueezed };
+    barPct, barExtras, barStrips, barDwellExtras, iconSqueezed };
 }
 
 test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
@@ -208,6 +216,10 @@ test("board pixel gate — invariants at 1920x1080 and 1280x720", async () => {
         // dad 9/2: slim bar, door only, and a real picture on every icon tile
         if (m.barPct != null && m.barPct > 9.1) violations.push(`${tag} BAR_TOO_TALL ${m.barPct}%`);
         if (m.barExtras.length) violations.push(`${tag} BAR_EXTRAS ${JSON.stringify(m.barExtras)}`);
+        // 9/4 amendment: at most one partner strip, and never a second dwell
+        // target in the bar — the door keeps that on every board.
+        if (m.barStrips > 1) violations.push(`${tag} BAR_STRIPS ${m.barStrips}`);
+        if (m.barDwellExtras.length) violations.push(`${tag} BAR_DWELL_EXTRAS ${JSON.stringify(m.barDwellExtras)}`);
         if (m.iconSqueezed.length) violations.push(`${tag} ICON_SQUEEZED ${JSON.stringify(m.iconSqueezed)}`);
       }
       await ctx.close();

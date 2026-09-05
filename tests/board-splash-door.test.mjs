@@ -40,7 +40,11 @@ test("the building screen has the door, top-left, sized like the board's own", a
     assert.ok(box.x < 40 && box.y < 40, `door sits in the top-left corner, got ${box.x},${box.y}`);
     assert.ok(box.height >= 24 && box.width >= 2 * box.height - 2, "door is the strip-high, double-wide chrome");
     assert.ok(Number(await door.getAttribute("data-dwell-ms")) >= 1600, "exit hold is the deliberate long one");
+    // Unchanged by the 9/4 amendment (T4.4) and checked because of it: the
+    // partner strip is pointer-only and never mounts before a recipe loads, so
+    // the building screen still has exactly ONE dwell target — the door.
     assert.equal(await page.locator(".dwell").count(), 1, "the door is the splash's one dwell target");
+    assert.equal(await page.locator("#partnerStrip").count(), 0, "no partner strip on the building screen");
     // the text still fits under the strip — nothing spills off screen
     const sb = await page.locator(".splash").boundingBox();
     assert.ok(sb.y >= box.y + box.height - 1, "splash sits below the door strip");

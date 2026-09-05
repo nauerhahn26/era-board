@@ -150,6 +150,10 @@ export function mountDoorBar(mount, onLeave) {
                               - px(cs.borderTopWidth) - px(cs.borderBottomWidth));
     doorBtn.style.width = Math.round(2 * inner) + "px";
     doorBtn.style.fontSize = Math.round(inner * 0.62) + "px";
+    // the bar's usable height, published for anything else the bar carries —
+    // today the pointer-only partner strip (board-partner.js, T4.4), which must
+    // track the strip exactly like the door does instead of restating 9%.
+    bar.style.setProperty("--bar-inner", Math.round(inner) + "px");
     return bh;
   }
   sizeBar();
