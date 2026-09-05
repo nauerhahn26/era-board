@@ -188,16 +188,31 @@ body{background:var(--paper); color:var(--ink);
    again (it did at 1024 wide, QA 9/2). */
 .tile.icon.weather{padding-bottom:26px}
 /* dad-only freshness stamp (weather tile): deliberately tiny — a debug read
-   for dad, NOT a choice for Ellie, so it sits below the 74px contract floor */
+   for dad, NOT a choice for Ellie, so it sits below the 74px contract floor.
+   ONE line, always: since 9/5 the stamp can carry the window too ("for 10 AM-1 PM ·
+   updated Fri Sep 5, 7:02 AM" — 42 chars against the 26 the padding above was
+   measured for), and a second line would land straight back on the temperature.
+   nowrap + ellipsis makes that impossible instead of merely unlikely. */
 .tile-foot{position:absolute; left:0; right:0; bottom:5px; text-align:center;
-           font-size:16px; font-weight:600; opacity:.55; pointer-events:none}
+           font-size:16px; font-weight:600; opacity:.55; pointer-events:none;
+           white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 
 /* ---- partner warn banner (T2.2) — touch only, NOT .dwell, styled like Pencil's
    #ttsWarn. Hidden until board.js finds TTS fell back/off. ---- */
 /* Bottom-centre, never the bar: anchored left it covered the exit door once the
    bar slimmed, and centred at the top it covered the bar controls of the day
-   (pixel gate, 9/1). Down here it only ever overlaps inert rest cells. Width is
-   capped so a longer sentence wraps instead of growing across the screen. */
+   (pixel gate, 9/1). Width is capped so a longer sentence wraps instead of growing
+   across the screen.
+   HONEST NOTE (9/5): "down here it only overlaps inert rest cells" was never true on
+   the outfit board — the bottom-middle cells are outfit tiles, and this banner covers
+   their label plates (bottom row 757->1067 at 1080 tall, plate 1005->1067, banner from
+   ~1012 down). The tighter 9/5 spacing pushed that ~9px worse, it did not cause it.
+   The pixel gate cannot see it: its OCCLUDED check reads elementFromPoint at each
+   .dwell target's CENTRE, and a plate is not a target. It only shows in the degraded
+   TTS state, so the picture still reads — but the word under it does not. Moving the
+   banner is a board-design call (every bottom-anchored strip overlaps the grid now that
+   vPad is 12, and reserving a strip in availH would be a layout shift when it appears),
+   so it waits for dad rather than being quietly redesigned here. */
 #ttsWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:52vw;
          background:#B23A48; color:#fff; font-size:19px; line-height:1.25;
          padding:7px 16px; border-radius:12px; z-index:70;
