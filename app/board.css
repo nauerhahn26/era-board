@@ -239,6 +239,15 @@ body{background:var(--paper); color:var(--ink);
          padding:8px 18px; border-radius:12px; z-index:72; pointer-events:none;
          font-family:var(--font); text-align:center}
 #launchWarn.show{display:block}
+/* "above every standing footer" was only a z-index until review 9/5 — it
+   painted ON #ttsWarn (no sound) and #contentNote (book news) at the same 6px,
+   and the sentence under it was gone for the twelve seconds it stood. It is
+   not in the footers' `~` ladder above: the div sits BEFORE #wardrobeNote and
+   #contentNote in index.html, and a fixed 54px rung would not clear a wrapped
+   footer anyway (#ttsWarn wraps to two lines at 52vw on a 1920-wide screen: 61px).
+   So board-render's setLaunchWarn MEASURES whichever footers are showing and
+   sets `bottom` inline to sit 6px above the highest; the standing footers never
+   move for it. bottom:6px here is the no-footer case. */
 
 /* ---- wardrobe footer (dad 9/3: "I added photos after my first run - a
    footer that says new photos were found and are processing"). Same partner

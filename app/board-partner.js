@@ -40,6 +40,7 @@ let pollTimer = null;
 let seenWhen = null;   // /music/add/status's `last.when` as it was BEFORE this add
 let frozen = [];       // the dwell targets this sheet put to sleep
 let landed = false;    // an add really arrived on THIS device while the sheet was up
+let inFlight = false;  // a song add the hub said 202 to and has not finished yet
 
 function onKey(e) { if (e.key === "Escape") closeSheet(); }
 
@@ -75,6 +76,17 @@ function thawBoard() {
   // settle window so it does not inherit a hold nobody started.
   try { if (window.Dwell && window.Dwell.suppress) window.Dwell.suppress(600); } catch { /* dwell.js absent in a bare page */ }
 }
+// A board can arrive UNDER a sheet that is already open: the splash's + Add
+// posts the first song, the grown-up waits with the sheet up while the hub
+// downloads, and the moment the song lands board.js's retry swaps the splash
+// for the real board — whose fresh tiles all wear .dwell, because freezeBoard
+// ran once, on a splash that had nothing but the door (review 9/5). So the
+// mount asks for the freeze again. A plain re-snapshot is right here: every
+// node the old list held went with the splash, so there is nothing to wake
+// there, and thawBoard() now wakes the tiles she can actually see.
+export function refreezeIfOpen() {
+  if (sheet) freezeBoard(sheet);
+}
 
 // A grown-up's own add is not the same event as a board that rebuilt itself.
 // board.js's watcher deliberately sits on a changed recipe until the child has
@@ -89,6 +101,16 @@ function thawBoard() {
 // the hand still holding it. `mirrored:false` is not a landing (the tile
 // honestly is not here yet, and the sheet says so), and neither is a failure.
 //
+// And an add OUTLIVES its sheet. The sheet's own words — "It will be on the
+// board in a minute." — invite the parent to close it and go and look, and the
+// first cut threw the watch away with the sheet, so a song that landed after
+// an early Close landed on a board nobody refreshed: the VM's black cells all
+// over again, with a hand on the mouse holding board.js's idle gate off for
+// as long as they stood there (review 9/5). Now the status poll keeps running
+// with no sheet to report to, and a landing then is the same event the reload
+// on close serves — the parent is already looking at the board — so it
+// reloads right there.
+//
 // The reload goes through window.__boardTest.reload when a test sets one — the
 // same dial-overriding idiom as T above, because a suite has to be able to see
 // the reload asked for without the page under it going away.
@@ -98,7 +120,9 @@ function reloadBoard() {
 }
 
 function closeSheet() {
-  clearTimeout(pollTimer); pollTimer = null;
+  // the poll dies with the sheet — unless it is following a song the hub is
+  // still fetching, which has a board to refresh whether the sheet is up or not
+  if (!inFlight) { clearTimeout(pollTimer); pollTimer = null; }
   document.removeEventListener("keydown", onKey, true);
   results = null;                     // it went with the card
   if (sheet) { sheet.remove(); sheet = null; }
@@ -128,27 +152,31 @@ function clearResults() {
 
 // After the 202 the download runs behind the door, so the sheet follows
 // /music/add/status until the song lands or fails. `seenWhen` keeps a PREVIOUS
-// add's result from being reported as this one's.
+// add's result from being reported as this one's. The poll does not need the
+// sheet to be up (say() is a no-op without one — see closeSheet): a song that
+// lands after an early Close refreshes the board it landed on, right then.
 function watchAdd() {
   const until = Date.now() + T.addGiveUpMs;
+  inFlight = true;
   const tick = async () => {
-    if (!sheet) return;
     let st = null;
     try { st = await (await fetch("/music/add/status", { cache: "no-store" })).json(); }
     catch { /* a blip: keep waiting, the download is on the hub, not here */ }
-    if (!sheet) return;
     if (st && st.running) {
       const who = st.running.title ? "“" + st.running.title + "”" : "that song";
       say("New ERA is fetching " + who + " — " + st.running.phase + ".");
     } else if (st && st.last && st.last.when !== seenWhen) {
+      inFlight = false;             // the answer is in, whichever it is
       // `mirrored:false` = the song is in the family's folder but this device's
       // shelf has not taken it yet, so the tile is not there to look at — and
       // nothing to reload for either.
       if (st.last.ok) {
         const here = st.last.mirrored !== false;
-        if (here) landed = true;
         say((st.last.title || "That song") + " is on the board."
           + (here ? " Close this and it is there." : " The board will catch up in a few minutes."));
+        // with the sheet up the reload waits for Close (see reloadBoard); with
+        // it already gone the grown-up is looking at the board right now
+        if (here) { if (sheet) landed = true; else reloadBoard(); }
       }
       // The hub's sentence for THIS failure (music-add.js plainly()), never the
       // line yt-dlp printed: VM QA 9/5 put "ERROR: [youtube] …: Sign in to
@@ -156,9 +184,10 @@ function watchAdd() {
       // truncated mid-word. `last.error` still carries that for whoever is
       // fixing the hub; it is not for this screen.
       else say(st.last.message || "New ERA could not add that song. Try again, or try another link.");
-      return;                       // the answer is in: stop polling
+      return;                       // stop polling
     }
     if (Date.now() < until) pollTimer = setTimeout(tick, T.addPollMs);
+    else inFlight = false;          // gave up: the next Close takes the poll with it
   };
   clearTimeout(pollTimer);
   pollTimer = setTimeout(tick, T.addPollMs);
@@ -510,10 +539,13 @@ function openSheet(kind) {
     };
     goBtn.addEventListener("click", submit);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-    if (kind === "songs") {
+    if (kind === "songs" && !inFlight) {
       // What the shelf already knows, so a result left over from an earlier add
       // is never reported as this one's. Movies need none of this: their add
-      // answers when it is done.
+      // answers when it is done. An add still in flight OWNS seenWhen: the poll
+      // outlives Close now, and re-opening the sheet mid-download must not
+      // null the mark its next tick compares against (it would take the
+      // previous add's result for this one's and stop watching).
       seenWhen = null;
       fetch("/music/add/status", { cache: "no-store" })
         .then((r) => r.json())
@@ -525,10 +557,14 @@ function openSheet(kind) {
   return wrap;
 }
 
-// mountPartnerStrip({bar, recipe}) -> the strip, or null on a board that has
-// none. The bar is board-render's .msgbar; the strip sits at the end opposite
-// the door (the door owns the top-left corner — the easiest reach on screen).
-export function mountPartnerStrip({ bar, recipe }) {
+// mountPartnerStrip({bar, recipe, arrange}) -> the strip, or null on a board
+// that has none. The bar is board-render's .msgbar; the strip sits at the end
+// opposite the door (the door owns the top-left corner — the easiest reach on
+// screen). `arrange:false` leaves "⇅ Arrange" off: the splash has nothing to
+// put in order, and nobody owns arrange mode until a board is up, so the tap
+// fell through to the fallback sheet and its films-only hint — "a new film
+// goes on at the end" over "No songs yet." (review 9/5).
+export function mountPartnerStrip({ bar, recipe, arrange = true }) {
   const kind = recipe === "songs" ? "songs" : recipe === "movies" ? "movies" : null;
   if (!bar || !kind) return null;
   const strip = document.createElement("div");
@@ -540,15 +576,16 @@ export function mountPartnerStrip({ bar, recipe }) {
     return b;                        // deliberately NO .dwell, NO data-dwell-*
   };
   const addBtn = mk("stripAdd", "+ Add");
-  const arrangeBtn = mk("stripArrange", "⇅ Arrange");
-  strip.append(addBtn, arrangeBtn);
+  const arrangeBtn = arrange ? mk("stripArrange", "⇅ Arrange") : null;
+  strip.append(addBtn);
+  if (arrangeBtn) strip.append(arrangeBtn);
   bar.appendChild(strip);
 
   addBtn.addEventListener("click", () => openSheet(kind));
   // ⇅ Arrange is T4.5 (drag the tiles, POST /music/order). It announces itself
   // on window and whoever owns arrange mode claims the tap with
   // preventDefault(); unclaimed, the strip says so instead of doing nothing.
-  arrangeBtn.addEventListener("click", () => {
+  if (arrangeBtn) arrangeBtn.addEventListener("click", () => {
     const ev = new CustomEvent("board:arrange", { cancelable: true, detail: { recipe: kind } });
     const claimed = !window.dispatchEvent(ev);
     if (!claimed) openSheet("arrange");

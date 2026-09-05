@@ -4,7 +4,7 @@
 // click handler covers both input paths.
 import { createSession } from "./board-model.js";
 import { mountBoard, mountDoorBar } from "./board-render.js";
-import { mountPartnerStrip } from "./board-partner.js";
+import { mountPartnerStrip, refreezeIfOpen } from "./board-partner.js";
 import { mountArrange } from "./board-arrange.js";
 import { createMusicPlayer } from "./music-player.js";
 
@@ -185,14 +185,17 @@ function showSplash(app) {
     // loaded, and a family that ticked Music at install then had no way to
     // reach the one control that fills it (VM QA 9/5, T7.6). Pointer-only as
     // ever; the door stays the bar's only dwell target. A landed song ends the
-    // splash through the caller's own retry.
+    // splash through the caller's own retry. "+ Add" alone: there is nothing
+    // to arrange on an empty board, and mountArrange (which claims the tap)
+    // only runs once a board is up — so ⇅ Arrange here could only ever reach
+    // the fallback sheet and its films-only wording (review 9/5).
     const song = RECIPE_NAME === "songs";
     d.textContent = song ? "No songs yet." : "Nothing to watch yet.";
     h.removeAttribute("href");
     h.style.textDecoration = "none"; h.style.cursor = "default";
     h.textContent = "Grown-ups: tap + Add at the top — with a mouse or a finger — to add the first " +
       (song ? "song" : "show") + ".";
-    mountPartnerStrip({ bar, recipe: RECIPE_NAME });
+    mountPartnerStrip({ bar, recipe: RECIPE_NAME, arrange: false });
     return;
   }
   if (RECIPE_NAME !== "today") return;   // coaching below is clothing-only
@@ -459,6 +462,15 @@ async function boot() {
     const b = new URLSearchParams(location.search).get("board");
     if (b && /^[a-z0-9-]{1,64}$/.test(b)) api.show(b);
   } catch { /* malformed URL: root board stands */ }
+
+  // The board may have come up UNDER the splash's sheet: the first song was
+  // added from the splash, the grown-up waited with the sheet open, and the
+  // retry above swapped the splash for a board whose fresh tiles all wear
+  // .dwell — live gaze targets behind a backdrop dwell.js steps straight over
+  // (review 9/5). The sheet put a board to sleep once; it has to do it again
+  // for this one — after the last render boot itself asks for, so the tiles it
+  // finds are the ones she can see. A no-op when no sheet is up.
+  refreezeIfOpen();
 
   // window hook: renderer API for kiosk control + pixel-audit state injection.
   window.Board = api;

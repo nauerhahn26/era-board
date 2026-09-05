@@ -599,13 +599,36 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // launch or after LAUNCH_WARN_MS on its own.
   const LAUNCH_WARN_MS = 12000;
   let launchWarnTimer = null;
+  // "Above every standing footer" was only a z-index until review 9/5: the
+  // banner painted ON #ttsWarn and #contentNote at the same 6px, and the
+  // sentence under it was unreadable for the twelve seconds it stood. The
+  // footers' CSS ladder cannot reach it (it precedes two of them in the DOM,
+  // and a fixed rung would not clear a wrapped footer anyway — #ttsWarn is two
+  // lines at 52vw), so it measures: 6px above the highest footer showing.
+  const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show";
+  function footerClearance() {
+    let top = window.innerHeight;
+    for (const el of document.querySelectorAll(STANDING_FOOTERS)) {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0) top = Math.min(top, r.top);
+    }
+    return Math.round(window.innerHeight - top) + 6;
+  }
   function setLaunchWarn(on) {
     const w = document.getElementById("launchWarn");
     if (!w) return;
     clearTimeout(launchWarnTimer); launchWarnTimer = null;
+    if (on) w.style.bottom = footerClearance() + "px";
     w.classList.toggle("show", on);
     if (on) launchWarnTimer = setTimeout(() => w.classList.remove("show"), LAUNCH_WARN_MS);
   }
+
+  // A wedged engine — up, taking the socket, never answering — is the other
+  // way bug 4 shows: with no deadline the fetch never settles, so neither the
+  // flag nor the banner ever comes and a press does nothing for ever (review
+  // 9/5). ERAgaze replies BEFORE it spawns the kiosk (ERAgaze.cs /app/launch:
+  // "Reply FIRST"), so a real launch is a few ms; 4 s is only for the wedge.
+  const LAUNCH_DEADLINE_MS = 4000;
 
   function launchMovie(btn, el) {
     const body = { url: btn.url, watch: true, titleId: btn.titleId };
@@ -614,6 +637,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     if (nx) body.next = nx;
     fetch("http://127.0.0.1:49155/app/launch", {
       method: "POST", body: JSON.stringify(body),
+      signal: AbortSignal.timeout(LAUNCH_DEADLINE_MS),
     }).then((r) => {
       if (!r.ok) throw new Error("launch " + r.status);
       setLaunchWarn(false);           // the engine answered: the explanation is stale

@@ -244,6 +244,40 @@ test("a song this device's shelf has not taken yet says so, and reloads nothing"
   } finally { await browser.close(); }
 });
 
+// The sheet's own words — "It will be on the board in a minute." — invite the
+// parent to close it and go and look. The first fix for bug 3 armed the reload
+// only while the sheet was still up to SEE the song land, so a Close before
+// the download finished threw the watch away with the sheet: the song landed
+// forty seconds later onto a board nobody refreshed, the exact VM QA 9/5
+// picture again, and a hand on the mouse kept board.js's idle gate from ever
+// catching up (review 9/5). An add outlives its sheet.
+test("a song that lands after the sheet was closed still refreshes the board", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD, running: { title: "Moana", phase: "downloading it" } };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /downloading it/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    // Close while the hub is still downloading: nothing has landed, nothing reloads
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    await page.waitForTimeout(400);   // a few status ticks with no sheet to report to
+    assert.equal(await page.evaluate(() => window.__reloads), 0, "still downloading: nothing to show yet");
+    assert.ok((await page.locator(".board-area .tile.dwell").count()) > 0, "and the board is hers again meanwhile");
+    // …then it lands on this device, with the parent already looking at the board
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: true, when: "now" } };
+    await page.waitForFunction(() => window.__reloads === 1, null, { timeout: 4000 });
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => window.__reloads), 1, "one refresh for one landed song, and no more");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
 // Bug 5's other half. The hub keeps yt-dlp's line for whoever is fixing it
 // (`last.error`) and writes the family's sentence beside it (`last.message`);
 // this sheet shows the second one and never the first. On the VM a parent got
@@ -430,6 +464,11 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
     assert.equal(await page.locator(".dwell").count(), 1, "…and the splash's only one at all");
     assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    // "⇅ Arrange" stays off the splash: nothing owns arrange mode until a board
+    // is up, so the tap fell through to the fallback sheet — and its one hint
+    // is written for FILMS ("a new film goes on at the end") on a board that
+    // has no songs (review 9/5). There is nothing to arrange on an empty board.
+    assert.deepEqual(shape.labels, ["+ Add"], "the splash offers + Add and nothing to arrange");
     // a grown-up adds the first song from right here
     await page.locator("#stripAdd").click();
     await page.locator("#partnerSheet").waitFor();
@@ -444,6 +483,33 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
                                      clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
     await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
     assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
+    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange"], "…and the real board's strip has its second door back");
+    // The board came up UNDER the sheet the grown-up is still holding (they
+    // waited with it open while the hub downloaded). freezeBoard ran once, on
+    // the splash, so the fresh tiles arrived wearing .dwell — live gaze targets
+    // behind a backdrop dwell.js steps straight over: a parked gaze could start
+    // the song under a sheet the child cannot see past (review 9/5). The mount
+    // has to hand its tiles over already asleep.
+    assert.equal(await page.locator("#partnerSheet").count(), 1, "the sheet is still up over the new board");
+    const under = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      dwell: [...document.querySelectorAll(".dwell")].map((el) => el.id),
+    }));
+    assert.ok(under.tiles > 0, "the song tile was drawn");
+    assert.equal(under.dwellTiles, 0, "a board mounted under an open sheet is asleep like one the sheet found");
+    assert.equal(under.disabled, under.tiles, "every new tile says so in the attribute dwell.js reads");
+    assert.deepEqual(under.dwell, ["barDoor"], "the door is the page's one dwell target while the sheet is up");
+    // …and Close wakes THESE tiles, not the splash's dead nodes
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    const back = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+    }));
+    assert.ok(back.dwellTiles > 0, "closing the sheet gives her the new board");
+    assert.equal(back.disabled, 0, "with nothing left switched off");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
@@ -490,6 +556,7 @@ test("nothing to watch yet: the hub's empty recipe gets the splash and + Add, an
     assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
     assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
     assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    assert.deepEqual(shape.labels, ["+ Add"], "nothing to arrange on an empty shelf: + Add alone");
     // …and the first tile ends the splash by itself
     movies = { ...EMPTY, boards: [{ ...EMPTY.boards[0], buttons: [
       { type: "movie", label: "One", titleId: "one", service: "netflix", url: "https://www.netflix.com/title/1", row: 1, col: 2 }] }] };

@@ -86,7 +86,7 @@ const ETAG = '"movies-fixture-1"';
 
 // Hermetic page: recipe + posters + ERAgaze + telemetry all stubbed at the
 // network layer BEFORE the page loads (board-music harness pattern).
-async function makePage(browser, { launchStatus = 200 } = {}) {
+async function makePage(browser, { launchStatus = 200, content = null } = {}) {
   const ctx = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
     hasTouch: true,
@@ -95,6 +95,10 @@ async function makePage(browser, { launchStatus = 200 } = {}) {
   const events = [];    // /movie-event payloads the hub pool would receive
   const state = { launchStatus };
   await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+  // /content/status is what paints (and clears) #contentNote; a test that
+  // wants that footer up hands makePage the status the hub would report
+  if (content) await ctx.route("**/content/status", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(content) }));
   await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
   await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
   await ctx.route("**/movies/*.jpg", (r) =>
@@ -325,6 +329,68 @@ test("49155 failure is graceful: calm flag, no marker, no event, board stays usa
     assert.equal(await page.locator("#launchWarn.show").count(), 0, "a real launch clears the explanation");
     assert.deepEqual(events.at(-1), { titleId: "bluey", service: "disney",
       episode: { s: 1, e: 3 }, action: "launch" }, "recovered launch reports its event");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The banner said it sat "above every standing footer" and the stylesheet put
+// it at the same bottom:6px as #ttsWarn and #contentNote with a higher
+// z-index — ON them, not above them (review 9/5): a box with no working sound
+// showed the amber launch banner painted squarely over the red no-sound one,
+// and a book's "ready to read" line vanished for the twelve seconds the banner
+// stood. The standing footers keep their ladder; this one climbs it.
+test("the launch banner stacks above the standing footers instead of covering them", async () => {
+  const browser = await chromium.launch();
+  try {
+    // the two footers a movies board can wear at once: no sound, and book
+    // news. The book footer is the board's OWN — its /content/status poll
+    // paints #contentNote and would strip a .show added by hand the moment
+    // the first poll answered (the race that made this test flake 9/5); the
+    // no-sound banner is set once at boot and never cleared, so a hand-set
+    // .show on it stays put.
+    const { ctx, page } = await makePage(browser, { launchStatus: 0, content: {
+      mode: "local", local: true, building: true,
+      job: { kind: "books", slug: "sunny-pond", step: "transcribe" },
+      jobs: [{ slug: "sunny-pond", title: "Sunny Pond", state: "building",
+               progress: { pages: 12, transcribed: 4 } }],
+    } });
+    await page.locator("#contentNote.show").waitFor({ timeout: 4000 });
+    await page.evaluate(() => { document.getElementById("ttsWarn").classList.add("show"); });
+    const box = async (sel) => page.locator(sel).boundingBox();
+    const before = await Promise.all([box("#ttsWarn"), box("#contentNote")]);
+    await page.locator('.tile.type-movie:has-text("Moana")').click();
+    const warn = page.locator("#launchWarn.show");
+    await warn.waitFor({ timeout: 2000 });
+    const [launch, tts, book] = await Promise.all([box("#launchWarn"), box("#ttsWarn"), box("#contentNote")]);
+    const apart = (a, b) => a.y + a.height <= b.y || b.y + b.height <= a.y;
+    assert.ok(apart(launch, tts), `the launch banner does not cover the no-sound banner (${launch.y}..${launch.y + launch.height} vs ${tts.y}..${tts.y + tts.height})`);
+    assert.ok(apart(launch, book), `…nor the book footer (${launch.y}..${launch.y + launch.height} vs ${book.y}..${book.y + book.height})`);
+    // the standing footers' own rungs are theirs (and a two-line #ttsWarn
+    // already crowds the 54px rung — pre-existing, not this banner's doing);
+    // what matters here is that the transient never MOVES them
+    assert.deepEqual([tts, book], before, "the standing footers still keep their own ladder");
+    assert.ok(launch.y + launch.height <= Math.min(tts.y, book.y) + 1, "it stands ABOVE both, the transient on top of the standing");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The other way ERAgaze fails: up, accepting the socket, and never answering
+// (a wedged engine — a documented state in the VM notes). A fetch with no
+// deadline never settles, so neither the flag nor the banner ever came: the
+// literal "pressed it and nothing happened" that raised bug 4, with each
+// further press stacking another request that waits for ever (review 9/5).
+test("an engine that accepts the launch and never answers still gets the flag and the banner", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, launches } = await makePage(browser);
+    // swallow the launch: the route neither fulfils nor aborts
+    await ctx.route("http://127.0.0.1:49155/app/launch", () => {});
+    await page.evaluate(() => window.Board.show("show-bluey"));
+    await page.locator('.tile.type-episode:has-text("Keepy Uppy")').click();
+    await page.waitForSelector(".tile.launch-failed", { timeout: 8000 });
+    await page.locator("#launchWarn.show").waitFor({ timeout: 2000 });
+    assert.equal(await page.locator(".tile.watching").count(), 0, "no watching marker: nothing launched");
+    assert.equal(launches.length, 0, "and the stubbed engine recorded no real launch");
     await ctx.close();
   } finally { await browser.close(); }
 });
