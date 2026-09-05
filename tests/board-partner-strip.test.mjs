@@ -448,3 +448,54 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     await ctx.close();
   } finally { await browser.close(); }
 });
+
+// The FIRST movie. The movies hub never 404s: its law is a VALID EMPTY recipe
+// (rest cells only) so the server boots on an all-null catalog. The board
+// drew that faithfully — twelve black squares and not a word — where the
+// songs board says "No songs yet" (VM QA 9/5, T7.6b). An empty shelf is the
+// same news whichever door it came through: the splash, the strip, the hint.
+test("nothing to watch yet: the hub's empty recipe gets the splash and + Add, and a tile ends it", async () => {
+  const browser = await chromium.launch();
+  try {
+    const EMPTY = { locale: "en-US", root: "movies", home_label: "Movies", meta: { pendingCount: 0 },
+                    boards: [{ id: "movies", name: "What do I want to watch?", rows: 3, columns: 4, buttons: [] }] };
+    let movies = EMPTY;
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+    await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+    await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+    await ctx.route("**/recipes/movies.json", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", headers: { etag: movies === EMPTY ? '"none"' : '"one"' }, body: JSON.stringify(movies) }));
+    await ctx.route("**/music/add/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(IDLE_ADD) }));
+    await ctx.route("http://127.0.0.1:49155/**", (r) => r.abort());
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => {
+      try { localStorage.clear(); } catch {}
+      window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                             pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300, addPollMs: 120 };
+    });
+    await page.goto(BASE + "?recipe=movies", { waitUntil: "load" });
+    await page.waitForSelector(".splash");
+    await page.waitForFunction(() => /Nothing to watch yet/.test(document.querySelector(".splash").textContent), null, { timeout: 4000 });
+    const note = await page.locator(".splash-note").textContent();
+    assert.match(note, /\+ Add/, "the note names the control: " + note);
+    assert.match(note, /show/, "…and what it adds: " + note);
+    assert.doesNotMatch(note, /Google Drive/, "movies do not come from Drive");
+    assert.equal(await page.locator(".cell").count(), 0, "no grid of black rest cells under the words");
+    const shape = await barShape(page);
+    assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
+    assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
+    assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    // …and the first tile ends the splash by itself
+    movies = { ...EMPTY, boards: [{ ...EMPTY.boards[0], buttons: [
+      { type: "movie", label: "One", titleId: "one", service: "netflix", url: "https://www.netflix.com/title/1", row: 1, col: 2 }] }] };
+    await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
+    assert.equal(await page.locator(".cell:not(.rest)").count(), 1, "the one tile is drawn");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});

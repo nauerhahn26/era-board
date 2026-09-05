@@ -71,6 +71,10 @@ const idleFor = () => Date.now() - lastActivity;
 // failure fall back to the stash. Returns {json, etag, offline} or null when
 // there is neither network nor cache.
 let recipeMiss = "";   // "no-content" = server answered 404; "net" = unreachable
+// does any board carry something to pick (not just Back / More / exit)?
+const hasTiles = (json) => (json && Array.isArray(json.boards) ? json.boards : [])
+  .some((b) => (b && Array.isArray(b.buttons) ? b.buttons : [])
+    .some((c) => c && !["back", "control", "exit"].includes(c.type)));
 async function loadRecipe() {
   try {
     const res = await fetch(RECIPE_URL, { cache: "no-store" });
@@ -78,6 +82,12 @@ async function loadRecipe() {
     if (!res.ok) throw new Error("recipe " + res.status);
     const text = await res.text();
     const json = JSON.parse(text); // parse BEFORE caching — never stash garbage
+    // The movies hub answers an empty shelf with a VALID recipe of rest cells
+    // (its law: the server boots on an all-null catalog), where songs answer
+    // 404. To a family both mean "nothing here yet", so both get the splash
+    // with its + Add strip — a fresh install used to open Movies on twelve
+    // black squares and not a word (VM QA 9/5, T7.6b).
+    if (RECIPE_NAME === "movies" && !hasTiles(json)) { recipeMiss = "no-content"; return null; }
     const etag = res.headers.get("etag") || "";
     try {
       localStorage.setItem(LS_RECIPE, text);
