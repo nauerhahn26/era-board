@@ -3,8 +3,11 @@
 // fetch/storage — enqueue never blocks, offline events persist and drain in
 // order, a 400 drops the bad event instead of wedging the queue.
 // Part 2: POST /outfit-event on the REAL server.js, spawned on a TEST port with
-// ELLIE_WARDROBE_DIR pointing at a temp dir — her live history.json is never
-// touched. Run: node --test tests/board-events.test.mjs
+// ERA_DATA_DIR pointing at a temp dir — her live history.json is never touched.
+// (The hub has ONE wardrobe dir, <DATA>/wardrobe, and no per-file override: the
+// old ELLIE_WARDROBE_DIR seam let the two history.json writers point at
+// different files and was retired with the 9/5 clothing migration, plan T2.2.)
+// Runs inside era-hub's gate (tools/era-gate.sh copies it next to server.js).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -120,12 +123,18 @@ const post = (body) => fetch(`${BASE}/outfit-event`, {
 });
 
 before(async () => {
-  WDIR = fs.mkdtempSync(path.join(os.tmpdir(), "outfit-events-"));
+  // a whole temp DATA dir: the hub writes history.json at <DATA>/wardrobe/ and
+  // nothing of this run lands in the checkout's data/ (or the gate's test-data)
+  const DDIR = fs.mkdtempSync(path.join(os.tmpdir(), "outfit-events-"));
+  WDIR = path.join(DDIR, "wardrobe");
+  fs.mkdirSync(WDIR);
   // pre-existing history: the endpoint must PRESERVE days written by the generator
   fs.writeFileSync(HIST(), JSON.stringify({ days: { "2026-08-04": { band: "hot", page1: [["item_aa11"]] } } }, null, 2));
   child = spawn("node", ["server.js", String(PORT)], {
     cwd: STUDIO, stdio: ["ignore", "inherit", "inherit"],
-    env: { ...process.env, ELLIE_WARDROBE_DIR: WDIR },
+    // ERA_DEVICE_ID: a named id, so the hub never derives one from this box's
+    // hostname (it would go under DDIR, but a hostname belongs in no log line)
+    env: { ...process.env, ERA_DATA_DIR: DDIR, ERA_BIND: "127.0.0.1", ERA_DEVICE_ID: "test" },
   });
   await waitFor(`${BASE}/settings`);
 });
