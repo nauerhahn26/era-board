@@ -58,6 +58,64 @@ body{background:var(--paper); color:var(--ink);
           background:rgba(255,255,255,.16); color:var(--bar-ink, #FFFFFF)}
 .stripbtn:hover{background:rgba(255,255,255,.28)}
 
+/* ---- 🔒 the media lock (T3/T4, dad 9/14) — the third strip button. It is
+   HELD, not tapped, so it has to show the hold happening: a conic-gradient ring
+   sweeps once over --hold-ms (board-lock.js writes the contract's holds.navMin
+   into that property, so the animation and the timer can never disagree). The
+   ring runs on a pseudo-element, which cannot be tapped and so cannot swallow
+   the pointerup that would cancel the hold.
+   touch-action:manipulation keeps the panel from treating the hold as a pan;
+   the user-select/callout pair is the rest of the Windows/WebKit long-press
+   furniture board-lock.js's preventDefault cannot reach. ---- */
+.stripbtn.lock{touch-action:manipulation; -webkit-user-select:none; user-select:none;
+          -webkit-touch-callout:none; position:relative; overflow:hidden;
+          min-width:var(--bar-inner, 40px)}
+.stripbtn.lock::after{content:""; position:absolute; inset:0; pointer-events:none;
+          border-radius:inherit; opacity:0;
+          background:conic-gradient(rgba(255,255,255,.55) var(--sweep, 0turn), transparent 0)}
+.stripbtn.lock.holding::after{opacity:1; animation:lockSweep var(--hold-ms, 1600ms) linear forwards}
+@keyframes lockSweep{from{--sweep:0turn} to{--sweep:1turn}}
+@property --sweep{syntax:"<angle>"; inherits:false; initial-value:0turn}
+/* locked reads at a glance from across a room: the quiet chrome goes solid
+   amber, the same "a grown-up did this on purpose" colour as #launchWarn. */
+.stripbtn.lock.locked{background:#8A5A18; color:#fff}
+
+/* the banner. #launchWarn's treatment exactly (touch only, NEVER .dwell,
+   pointer-events:none so a tap on it reaches the board underneath) with one
+   difference: no timer. It stands for as long as the lock does, because a
+   grown-up walking up to a silent board should be able to read WHY. */
+#lockWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:#8A5A18; color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:73; pointer-events:none;
+         font-family:var(--font); text-align:center}
+#lockWarn.show{display:block}
+
+/* ---- the passcode keypad (T4). A grown-up surface behind a hold, so touch and
+   click are both fine — but it is on HER screen, so nothing in it is a gaze
+   target and every key is a >=90px box (invariants law 1). Above the partner
+   sheet: a lock a parent is unlocking is the only thing they are looking at. */
+#lockPad{position:fixed; inset:0; z-index:95; display:flex; align-items:center; justify-content:center;
+         background:rgba(0,0,0,.55)}
+.lockpad-card{background:#FFFFFF; color:var(--ink, #17272E); font-family:var(--font);
+         padding:22px 24px; border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,.35);
+         display:flex; flex-direction:column; align-items:center; gap:14px}
+.lockpad-title{font-size:24px; font-weight:700}
+.lockpad-dots{display:flex; gap:12px; height:22px; align-items:center}
+.lockpad-dot{width:16px; height:16px; border-radius:50%; background:transparent;
+         border:3px solid var(--line, #B9C7CC)}
+.lockpad-dot.on{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58)}
+.lockpad-grid{display:grid; grid-template-columns:repeat(3, 96px); gap:12px}
+.lockpad-key{width:96px; height:96px; border:none; border-radius:14px; cursor:pointer;
+         font-family:var(--font); font-size:34px; font-weight:700;
+         background:#E3EAEC; color:var(--ink, #17272E)}
+.lockpad-key.ok{background:var(--teal-deep, #0B4E58); color:#FFFFFF}
+.lockpad-foot{width:100%; display:flex; justify-content:center}
+.lockpad-foot .lockpad-key{width:100%; font-size:24px}
+/* a wrong passcode says so the way a locked door does: it moves and stays shut. */
+.lockpad-card.shake{animation:lockShake 360ms ease-in-out}
+@keyframes lockShake{0%,100%{transform:translateX(0)} 20%{transform:translateX(-12px)}
+         40%{transform:translateX(12px)} 60%{transform:translateX(-8px)} 80%{transform:translateX(8px)}}
+
 /* the sheet the strip opens: a plain modal card, pointer-only like the strip.
    Above the footer notes (z 70), below nothing — it is the only thing a parent
    is looking at while it is up, and Close/Escape/backdrop all dismiss it. */

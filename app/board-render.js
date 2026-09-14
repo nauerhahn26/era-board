@@ -17,6 +17,7 @@
 
 import { CONTRACT as EC } from "../lib/contract.js";
 import { createOutfitEvents } from "./board-events.js";
+import { isLocked, syncLock } from "./board-lock.js";
 
 // ---- one place for every tunable — VALUES COME FROM lib/contract.js (the
 // whitelist; mirrors knowledge/ux-contract.md). CONFIG keeps the renderer's
@@ -307,6 +308,11 @@ function makeTile(btn, w, h, dwellMs) {
   const type = btn.type || "control";
   el.className = "cell tile dwell type-" + type;
   el.type = "button";
+  // The type in the DOM, not only in the class list (T3, 9/14): the media lock
+  // has to pick the song/movie tiles out of a grid it did not build, and
+  // `.type-song` is a STYLE hook — a selector built out of it would break the
+  // day a board wants a song tile that is painted differently.
+  el.dataset.tileType = type;
   el.dataset.dwellMs = String(tileDwellMs(btn, type, dwellMs));
   el.setAttribute("aria-label", btn.label || "");
   el.dataset.dwellSay = btn.say != null ? btn.say : (btn.label || "");
@@ -690,6 +696,14 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     if (arranging && !isPageDoor(btn)) return;   // a drag is not a pick
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
+    // The media lock (dad 9/14), belt and braces. board-lock.js already took
+    // .dwell off these tiles, so a GAZE cannot reach them — but a finger still
+    // lands a click on any button, and the boy poking the tablet is the reason
+    // the lock exists. Silent: a refusal that says something is a refusal worth
+    // pressing again. Nav, `show`, the door and her outfit tiles are untouched —
+    // locked means "reachable but inert", never "frozen".
+    if (isLocked() &&
+        (type === "song" || type === "full" || type === "stop" || LAUNCH_TYPES.has(type))) return;
     // Movies Board (spec 8/29 §5): a show tile is a DOOR to its show board
     // (episode picker) — silent nav, no launch, no event. movie/episode tiles
     // LAUNCH the streaming app via ERAgaze; the board itself never plays video.
@@ -794,6 +808,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     for (const fit of fits) fit();
     if (music) applyPlaying(music.playingId()); // marker survives page nav
     applyWatching();                            // .watching survives page nav too
+    syncLock();                                 // …and so does the media lock (9/14)
   }
 
   render();
@@ -806,7 +821,11 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     // T4.5: what board-arrange.js needs and nothing more — the grid it drags
     // tiles inside, and the switch that turns every tile into furniture.
     area,
-    setArranging(on) { arranging = !!on; return arranging; },
+    // board-arrange.js's thaw() hands .dwell back to EVERY tile on the way out
+    // of arrange mode — it has no idea the lock took some of them away — so the
+    // lock is re-applied the moment the mode closes. (Leaving arrange mode is
+    // not a render, so render()'s own syncLock would not catch this.)
+    setArranging(on) { arranging = !!on; if (!arranging) syncLock(); return arranging; },
     isArranging() { return arranging; },
     // deep-link/testing hook: jump to a board id then render.
     show(id) { session.navigate(id); render(); return session.current; },

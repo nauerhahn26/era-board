@@ -28,6 +28,13 @@ function installSpeechSpy(s) {
 }
 const speech = window.__testHooks ? installSpeechSpy(baseSpeech) : baseSpeech;
 
+// The hub's /settings as boot read it, kept because two things downstream need
+// keys out of it that boot itself has no use for: the media lock's `lockMinutes`
+// and `lockPasscodeHash` (T3, 9/14), on the splash as well as on the board. An
+// empty object is the honest offline answer — board-lock.js carries the same
+// defaults the hub does.
+let settings = {};
+
 // clamp /settings dwell into the sane band (matches server POST clamp).
 function clampDwell(n) {
   if (typeof n !== "number" || !isFinite(n)) return 1200;
@@ -195,7 +202,11 @@ function showSplash(app) {
     h.style.textDecoration = "none"; h.style.cursor = "default";
     h.textContent = "Grown-ups: tap + Add at the top — with a mouse or a finger — to add the first " +
       (song ? "song" : "show") + ".";
-    mountPartnerStrip({ bar, recipe: RECIPE_NAME, arrange: false });
+    // …and 🔒 with it (T3, 9/14). No music player exists on a splash — there is
+    // nothing to stop — but a grown-up in a classroom may well want the lock ON
+    // before the first song ever lands, and the fact is shared with the board
+    // that replaces this screen.
+    mountPartnerStrip({ bar, recipe: RECIPE_NAME, arrange: false, settings });
     return;
   }
   if (RECIPE_NAME !== "today") return;   // coaching below is clothing-only
@@ -402,6 +413,7 @@ async function boot() {
   let musicVolCap;   // % loudness cap for the Songs Board (undefined = offline; player uses its cached value)
   try {
     const st = await (await fetch("/settings", { cache: "no-store" })).json();
+    settings = st || {};
     if (st.childName) window.ERA_CHILD_NAME = st.childName;
     if (typeof st.musicVolCap === "number") musicVolCap = st.musicVolCap;
     dwellMs = clampDwell(st.dwellMs);
@@ -447,7 +459,8 @@ async function boot() {
   // here, after the bar exists, because the recipe name is board.js's to know.
   // Touch/click only — board-partner.js gives it no .dwell, so her gaze cannot
   // reach it and the door stays the bar's one dwell target.
-  const partner = mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME });
+  const partner = mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME,
+                                      settings, music });
 
   // "⇅ Arrange" (T4.5): the strip only announces the tap — this claims it and
   // owns the mode where a finger moves the songs. On a board nobody arranges

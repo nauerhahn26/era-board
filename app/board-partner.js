@@ -24,6 +24,8 @@
 // to this page — there is nothing to test for. The protection that actually
 // holds is the one above: no dwell target, so a parked gaze can never fire it.
 
+import { mountLockButton } from "./board-lock.js";
+
 // Timing, overridable by tests exactly like board.js's own dials.
 const T = Object.assign(
   { addPollMs: 3000, addGiveUpMs: 6 * 60 * 1000 },
@@ -557,14 +559,18 @@ function openSheet(kind) {
   return wrap;
 }
 
-// mountPartnerStrip({bar, recipe, arrange}) -> the strip, or null on a board
-// that has none. The bar is board-render's .msgbar; the strip sits at the end
-// opposite the door (the door owns the top-left corner — the easiest reach on
-// screen). `arrange:false` leaves "⇅ Arrange" off: the splash has nothing to
-// put in order, and nobody owns arrange mode until a board is up, so the tap
-// fell through to the fallback sheet and its films-only hint — "a new film
-// goes on at the end" over "No songs yet." (review 9/5).
-export function mountPartnerStrip({ bar, recipe, arrange = true }) {
+// mountPartnerStrip({bar, recipe, arrange, settings, music}) -> the strip, or
+// null on a board that has none. The bar is board-render's .msgbar; the strip
+// sits at the end opposite the door (the door owns the top-left corner — the
+// easiest reach on screen). `arrange:false` leaves "⇅ Arrange" off: the splash
+// has nothing to put in order, and nobody owns arrange mode until a board is
+// up, so the tap fell through to the fallback sheet and its films-only hint —
+// "a new film goes on at the end" over "No songs yet." (review 9/5).
+//
+// 🔒 rides here too (T3, dad 9/14), on the boards AND on the splash: it is the
+// same class of thing as "+ Add" — a grown-up's control, no .dwell, no
+// data-dwell-*, a finger only — and board-lock.js owns everything it does.
+export function mountPartnerStrip({ bar, recipe, arrange = true, settings = null, music = null }) {
   const kind = recipe === "songs" ? "songs" : recipe === "movies" ? "movies" : null;
   if (!bar || !kind) return null;
   const strip = document.createElement("div");
@@ -580,6 +586,9 @@ export function mountPartnerStrip({ bar, recipe, arrange = true }) {
   strip.append(addBtn);
   if (arrangeBtn) strip.append(arrangeBtn);
   bar.appendChild(strip);
+  // 🔒 last, at the far end: locking is the rarest of the three and the one a
+  // grown-up reaches for without looking, so it gets the corner.
+  const lockBtn = mountLockButton({ strip, mk, settings, music });
 
   addBtn.addEventListener("click", () => openSheet(kind));
   // ⇅ Arrange is T4.5 (drag the tiles, POST /music/order). It announces itself
@@ -590,5 +599,5 @@ export function mountPartnerStrip({ bar, recipe, arrange = true }) {
     const claimed = !window.dispatchEvent(ev);
     if (!claimed) openSheet("arrange");
   });
-  return { strip, addBtn, arrangeBtn, openSheet: () => openSheet(kind), closeSheet };
+  return { strip, addBtn, arrangeBtn, lockBtn, openSheet: () => openSheet(kind), closeSheet };
 }

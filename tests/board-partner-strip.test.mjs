@@ -108,7 +108,10 @@ test("songs board: the strip rides in the bar, and the door keeps the bar's only
     assert.deepEqual(bar.barDwell, ["barDoor"], "the door is the bar's only dwell target");
     assert.equal(bar.stripDwell, false, "nothing in the strip is a gaze target");
     assert.deepEqual(bar.stripDwellAttrs, [], "nothing in the strip carries a dwell attribute");
-    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange"], "the strip's two grown-up doors");
+    // 9/14: 🔒 joined them (board-lock.test.mjs owns what it DOES). What this
+    // suite keeps asserting about it is what it is NOT — no .dwell, no
+    // data-dwell-* — two lines up.
+    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange", "🔒"], "the strip's three grown-up doors");
     assert.ok(bar.hPct <= 9.1, `bar is still a slim strip (was ${bar.hPct}% of the viewport)`);
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
@@ -468,7 +471,11 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     // is up, so the tap fell through to the fallback sheet — and its one hint
     // is written for FILMS ("a new film goes on at the end") on a board that
     // has no songs (review 9/5). There is nothing to arrange on an empty board.
-    assert.deepEqual(shape.labels, ["+ Add"], "the splash offers + Add and nothing to arrange");
+    // …and 🔒 (9/14): there is nothing to arrange on an empty board, but a
+    // grown-up in a classroom may well want the lock on before the first song
+    // ever lands — and the lock is the same fact on the board that replaces
+    // this screen.
+    assert.deepEqual(shape.labels, ["+ Add", "🔒"], "the splash offers + Add and the lock, and nothing to arrange");
     // a grown-up adds the first song from right here
     await page.locator("#stripAdd").click();
     await page.locator("#partnerSheet").waitFor();
@@ -483,7 +490,7 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
                                      clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
     await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
     assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
-    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange"], "…and the real board's strip has its second door back");
+    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange", "🔒"], "…and the real board's strip has its second door back");
     // The board came up UNDER the sheet the grown-up is still holding (they
     // waited with it open while the hub downloaded). freezeBoard ran once, on
     // the splash, so the fresh tiles arrived wearing .dwell — live gaze targets
@@ -556,7 +563,7 @@ test("nothing to watch yet: the hub's empty recipe gets the splash and + Add, an
     assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
     assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
     assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
-    assert.deepEqual(shape.labels, ["+ Add"], "nothing to arrange on an empty shelf: + Add alone");
+    assert.deepEqual(shape.labels, ["+ Add", "🔒"], "nothing to arrange on an empty shelf: + Add and the lock");
     // …and the first tile ends the splash by itself
     movies = { ...EMPTY, boards: [{ ...EMPTY.boards[0], buttons: [
       { type: "movie", label: "One", titleId: "one", service: "netflix", url: "https://www.netflix.com/title/1", row: 1, col: 2 }] }] };
