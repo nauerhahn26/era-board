@@ -130,10 +130,32 @@ function releaseLock() {
   try { if (window.Dwell && window.Dwell.suppress) window.Dwell.suppress(600); } catch { /* bare page */ }
 }
 
+// The standing footers this banner has to clear, and the measurement that does
+// it. This is the TWIN of board-render.js's STANDING_FOOTERS/footerClearance —
+// the two are meant to agree, so change one and change the other. It is copied
+// rather than imported on purpose: board-render.js imports THIS module, and an
+// import back the other way would be a cycle for nine lines of arithmetic.
+const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show";
+function footerClearance() {
+  let top = window.innerHeight;
+  for (const el of document.querySelectorAll(STANDING_FOOTERS)) {
+    const r = el.getBoundingClientRect();
+    if (r.height > 0) top = Math.min(top, r.top);
+  }
+  return Math.round(window.innerHeight - top) + 6;
+}
+
 // The banner. Style and manners of #launchWarn: touch only, never .dwell, and
 // pointer-events:none so a tap on it reaches whatever is underneath. Unlike
 // #launchWarn it has no timer — it stands for as long as the lock does, because
 // a grown-up walking up to a silent board should be able to read WHY.
+//
+// And because it stands, it has to STAY out of the way: the recorded 9/14 run
+// found it painting on the no-sound footer at the shared bottom:6px — "check the
+// speakers or W[Locked until 10:45 PM]". So, like setLaunchWarn, it measures
+// whichever footers are showing and sits 6px above the highest; the footers
+// never move for it. The re-measure on resize is what #launchWarn does not need
+// (twelve seconds and gone) and this does: a lock can outlive a rotation.
 function setWarn(until) {
   if (!warn) {
     warn = document.getElementById("lockWarn");
@@ -142,10 +164,15 @@ function setWarn(until) {
       warn.id = "lockWarn";
       document.body.appendChild(warn);
     }
+    // registered once, with the element it belongs to
+    window.addEventListener("resize", () => {
+      if (warn && warn.classList.contains("show")) warn.style.bottom = footerClearance() + "px";
+    });
   }
   if (until == null) { warn.classList.remove("show"); return; }
   warn.textContent = until === 0 ? "Locked"
     : "Locked until " + new Date(until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  warn.style.bottom = footerClearance() + "px";
   warn.classList.add("show");
 }
 

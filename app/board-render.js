@@ -611,7 +611,10 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // footers' CSS ladder cannot reach it (it precedes two of them in the DOM,
   // and a fixed rung would not clear a wrapped footer anyway — #ttsWarn is two
   // lines at 52vw), so it measures: 6px above the highest footer showing.
-  const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show";
+  // #lockWarn stands here too (9/14): it has no timer either, so a launch
+  // warning has to lift above a lock banner the same way it lifts above the
+  // no-sound one. board-lock.js keeps its own copy of the line above it.
+  const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show, #lockWarn.show";
   function footerClearance() {
     let top = window.innerHeight;
     for (const el of document.querySelectorAll(STANDING_FOOTERS)) {

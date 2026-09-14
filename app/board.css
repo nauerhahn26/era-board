@@ -83,7 +83,12 @@ body{background:var(--paper); color:var(--ink);
 /* the banner. #launchWarn's treatment exactly (touch only, NEVER .dwell,
    pointer-events:none so a tap on it reaches the board underneath) with one
    difference: no timer. It stands for as long as the lock does, because a
-   grown-up walking up to a silent board should be able to read WHY. */
+   grown-up walking up to a silent board should be able to read WHY.
+   Which is also why bottom:6px here is only the NO-FOOTER case: at that shared
+   6px it painted on the no-sound footer (recorded run 9/14 — "check the speakers
+   or W[Locked until 10:45 PM]"), so board-lock.js MEASURES whichever standing
+   footers are showing and sets `bottom` inline to sit 6px above the highest, the
+   same way setLaunchWarn does. The standing footers never move for it. */
 #lockWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
          background:#8A5A18; color:#fff; font-size:21px; line-height:1.25;
          padding:8px 18px; border-radius:12px; z-index:73; pointer-events:none;

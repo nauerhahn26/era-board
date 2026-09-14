@@ -329,6 +329,49 @@ test("the movies board locks the same way, and a locked movie tile launches noth
   } finally { await browser.close(); }
 });
 
+// --------------------------------------------------- T3: the banner's manners
+
+test("the banner sits ABOVE the no-sound footer instead of painting on it", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser, "songs");
+    // The degraded-TTS footer, in the same state board.js puts it in when
+    // speech.init() comes back "off" — bottom:6px, which is where #lockWarn
+    // starts too. The recorded 9/14 run had both up and read "…check the
+    // speakers or W[Locked until 10:45 PM]": the lock's amber plate painted
+    // over the end of the sentence a grown-up needed.
+    const foot = await page.evaluate(() => {
+      const w = document.getElementById("ttsWarn");
+      w.classList.add("show");
+      const r = w.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, height: r.height };
+    });
+    assert.ok(foot.height > 0, "the no-sound footer is really showing");
+
+    await hold(page, "#stripLock", 1900);
+    await page.waitForFunction(() => !!localStorage.getItem("era.lock"), null, { timeout: 4000 });
+    await page.locator("#lockWarn.show").waitFor({ timeout: 4000 });
+
+    const m = await page.evaluate(() => {
+      const w = document.getElementById("lockWarn"), t = document.getElementById("ttsWarn");
+      const wr = w.getBoundingClientRect(), tr = t.getBoundingClientRect();
+      return { warnBottom: wr.bottom, inline: w.style.bottom,
+               footTop: tr.top, footBottom: tr.bottom };
+    });
+    assert.ok(m.warnBottom <= m.footTop,
+              "the lock banner clears the footer: " + m.warnBottom + " > " + m.footTop);
+    assert.ok(parseInt(m.inline, 10) >= Math.round(foot.height) + 6,
+              "and it measured rather than guessed: bottom " + m.inline + " for a " +
+              Math.round(foot.height) + "px footer");
+    // the standing footers never move for a banner — the sentence stays where
+    // the grown-up's eye already found it.
+    assert.equal(m.footTop, foot.top, "the no-sound footer did not move");
+    assert.equal(m.footBottom, foot.bottom, "…at either edge");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
 // ------------------------------------------------------------- T4: the keypad
 
 const PASS = { lockMinutes: 45, lockPasscodeHash: sha256("2468") };
