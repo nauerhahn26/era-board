@@ -113,7 +113,9 @@ body{background:var(--paper); color:var(--ink);
 .lockpad-key{width:96px; height:96px; border:none; border-radius:14px; cursor:pointer;
          font-family:var(--font); font-size:34px; font-weight:700;
          background:#E3EAEC; color:var(--ink, #17272E)}
-.lockpad-key.ok{background:var(--teal-deep, #0B4E58); color:#FFFFFF}
+/* the bottom-left cell: an inert span holding the column so ⌫ stays under 9 —
+   there is no ✓ key, because the fourth digit submits by itself. */
+.lockpad-gap{width:96px; height:96px}
 .lockpad-foot{width:100%; display:flex; justify-content:center}
 .lockpad-foot .lockpad-key{width:100%; font-size:24px}
 /* a wrong passcode says so the way a locked door does: it moves and stays shut. */

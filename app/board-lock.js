@@ -213,8 +213,14 @@ async function sha256Hex(s) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const KEYPAD_ROWS = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["del", "0", "ok"]];
-const KEY_FACE = { del: "⌫", ok: "✓", cancel: "Cancel" };
+// A passcode is ALWAYS exactly four digits (Settings enforces it), so the
+// fourth digit IS the ✓ and there is no ✓ key: a grown-up at the back of a
+// classroom types four and the board is theirs, one tap sooner. "" is an inert
+// spacer, not a key — it holds the bottom-left grid cell so ⌫ keeps its column
+// and every real key keeps its 96px box (invariants law 1).
+const PASS_LEN = 4;
+const KEYPAD_ROWS = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "del"]];
+const KEY_FACE = { del: "⌫", cancel: "Cancel" };
 
 function openKeypad({ hash, onOk }) {
   if (document.getElementById("lockPad")) return;
@@ -230,7 +236,7 @@ function openKeypad({ hash, onOk }) {
   dots.className = "lockpad-dots";
   // Masked, and masked from the start: a passcode typed in a classroom is typed
   // in front of whoever asked about it.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < PASS_LEN; i++) {
     const d = document.createElement("span");
     d.className = "lockpad-dot";
     dots.append(d);
@@ -243,9 +249,8 @@ function openKeypad({ hash, onOk }) {
 
   const close = () => { pad.remove(); };
 
+  // Only ever reached with a full four digits: nothing else can submit.
   async function submit() {
-    // An empty entry is a mis-tap, not a wrong passcode: say nothing and wait.
-    if (!entry) return;
     let got = "";
     try { got = await sha256Hex(entry); } catch { got = ""; }
     if (got && got === hash) { close(); onOk(); return; }
@@ -259,20 +264,28 @@ function openKeypad({ hash, onOk }) {
   }
 
   const key = (k) => {
+    // The spacer: a span, never a <button>, so it cannot be tapped, cannot be
+    // tabbed to, and is not one of the pad's keys to anything counting them.
+    if (!k) {
+      const gap = document.createElement("span");
+      gap.className = "lockpad-gap";
+      gap.setAttribute("aria-hidden", "true");
+      return gap;
+    }
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "lockpad-key" + (k === "ok" ? " ok" : "");
+    b.className = "lockpad-key";
     b.dataset.key = k;                         // deliberately NO .dwell, NO data-dwell-*
     b.textContent = KEY_FACE[k] || k;
     b.addEventListener("click", () => {
       if (k === "cancel") { close(); return; }
       if (k === "del") { entry = entry.slice(0, -1); paint(); return; }
-      if (k === "ok") { submit(); return; }
-      if (entry.length >= 6) return;
+      // Load-bearing, not dead: submit() hashes asynchronously, so a fast
+      // fifth tap can land while the four digits are still being checked.
+      if (entry.length >= PASS_LEN) return;
       entry += k; paint();
-      // Six digits is the longest a passcode may be (Settings clamps 4-6), so
-      // the sixth digit IS the ✓ — one fewer tap on the way back to the music.
-      if (entry.length === 6) submit();
+      // A passcode is exactly four digits, so the FOURTH digit is the ✓.
+      if (entry.length === PASS_LEN) submit();
     });
     return b;
   };

@@ -399,26 +399,39 @@ test("passcode set: the hold opens a keypad, and a wrong one keeps the lock", as
         small: keys.map((b) => b.getBoundingClientRect())
           .filter((r) => r.width < 90 || r.height < 90).length,
         keys: keys.length,
+        dots: p.querySelectorAll(".lockpad-dot").length,
+        ok: p.querySelectorAll("[data-key='ok']").length,
       };
     });
     assert.equal(pad.dwell, false, "no gaze target in the keypad");
     assert.deepEqual(pad.dwellAttrs, [], "and no dwell attribute either");
-    assert.ok(pad.keys >= 13, "0-9 and ⌫ ✓ Cancel: " + pad.keys);
+    assert.equal(pad.keys, 12, "0-9 and ⌫ Cancel, and nothing else: " + pad.keys);
     assert.equal(pad.small, 0, "every key is at least 90x90");
+    // The passcode is ALWAYS four digits now (Settings enforces it), so the
+    // fourth digit IS the ✓ — there is no ✓ key left to press, and four dots
+    // is the whole of what a grown-up has to fill.
+    assert.equal(pad.dots, 4, "four dots, not six");
+    assert.equal(pad.ok, 0, "and no ✓ key at all");
 
     // ⌫ takes back the last digit, because a grown-up entering this at the back
     // of a classroom cannot see the digits they typed — only the dots.
-    await type(page, "11119");
-    assert.equal(await page.evaluate(() => document.querySelectorAll("#lockPad .lockpad-dot.on").length), 5);
+    await type(page, "135");
+    assert.equal(await page.evaluate(() => document.querySelectorAll("#lockPad .lockpad-dot.on").length), 3,
+                 "three digits is three dots, and submits nothing");
+    assert.ok(await page.evaluate(() => !!localStorage.getItem("era.lock")), "still locked mid-entry");
     await page.locator("#lockPad button[data-key='del']").click();
-    assert.equal(await page.evaluate(() => document.querySelectorAll("#lockPad .lockpad-dot.on").length), 4,
+    assert.equal(await page.evaluate(() => document.querySelectorAll("#lockPad .lockpad-dot.on").length), 2,
                  "⌫ gives one back");
-    await page.locator("#lockPad button[data-key='ok']").click();
+
+    // …and the fourth digit submits on its own: nothing is clicked after it.
+    await type(page, "57");                       // 1357: wrong
     await page.waitForTimeout(500);
     const s = await lockState(page);
     assert.ok(s.stored, "a wrong passcode leaves the lock exactly where it was");
     assert.equal(s.mediaAsleep, s.media, "…and the tiles asleep");
     assert.equal(await page.locator("#lockPad").count(), 1, "the pad stays up for another try");
+    assert.equal(await page.locator("#lockPad .lockpad-card.shake").count(), 1,
+                 "it moved and stayed shut");
     assert.equal(await page.evaluate(() => document.querySelectorAll("#lockPad .lockpad-dot.on").length), 0,
                  "with the entry cleared");
     assert.deepEqual(errors, [], "no page errors");
@@ -432,8 +445,7 @@ test("passcode set: the right one unlocks and takes the keypad with it", async (
     const { ctx, page, errors } = await open(browser, "songs", { seed: { until: 0 }, settings: PASS });
     await hold(page, "#stripLock", 1900);
     await page.locator("#lockPad").waitFor({ timeout: 4000 });
-    await type(page, "2468");
-    await page.locator("#lockPad button[data-key='ok']").click();
+    await type(page, "2468");                     // the fourth digit is the ✓
     await page.waitForFunction(() => !localStorage.getItem("era.lock"), null, { timeout: 4000 });
     await page.waitForFunction(() => !document.getElementById("lockPad"), null, { timeout: 4000 });
     const s = await lockState(page);
