@@ -243,7 +243,7 @@ test("a gaze parked on ⇅ Arrange never opens arrange mode", async () => {
     // ERAgaze drives the real cursor, so a parked gaze IS a parked pointer.
     const box = await page.locator("#stripArrange").boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(2600);   // > the longest hold on the board (2400ms door)
+    await page.waitForTimeout(2600);   // > the longest hold on the board (the 2 x dwell doors)
     assert.equal(await page.locator("#arrangeNote").count(), 0, "arrange mode never opened itself");
     assert.equal(await page.evaluate(() => window.__activateCount), 0, "no dwell:activate on the strip");
     assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the pointer");

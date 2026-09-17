@@ -155,12 +155,15 @@ test("movies board: posters, show door, launch + watching marker, More/back/rest
     // rest spots: every empty cell is a black inert rest, aria-hidden
     assert.equal(await page.locator(".cell.rest").count(), 8, "8 rest cells fill the 3x4 grid");
     assert.equal(await page.locator('.cell.rest[aria-hidden="true"]').count(), 8, "rests are aria-hidden");
-    // launch tiles carry the deliberate nav-tier hold (leaving the board for
-    // another app >= a nav door; content default would be too quick)
-    assert.ok(parseInt(await moana.evaluate((el) => el.dataset.dwellMs)) >= 1600,
-      "movie launch hold is nav-tier");
-    assert.ok(parseInt(await showTile.evaluate((el) => el.dataset.dwellMs)) >= 1600,
-      "show door hold is nav-tier");
+    // AMENDED 9/17 (dad's two-speeds ruling, spec §5.1): there is no nav tier
+    // any more. Every tile on the grid — a movie launch and a show door
+    // included — holds exactly HER Settings dwell; only the doors that take her
+    // off the screen buy 2 x that. Read from the hub the page read.
+    const dwell = (await (await fetch(new URL("/settings", BASE))).json()).dwellMs;
+    assert.equal(await moana.evaluate((el) => el.dataset.dwellMs), String(dwell),
+      "a movie launch holds her dwell");
+    assert.equal(await showTile.evaluate((el) => el.dataset.dwellMs), String(dwell),
+      "and so does the show door");
 
     // ---- show door: navigates (door semantics), silent, NO launch/event ----
     await resetLog(page);
@@ -270,16 +273,25 @@ test("what-next board: deep link, four choices — next launches, something-else
     await page.locator('.tile.type-control:has-text("Something else")').click();
     assert.equal(await onBoard(page), "movies", "something-else opens the main picker");
 
-    // all done -> the existing exit path (grid exit tile, 2400ms hold)
+    // all done -> the existing exit path (grid exit tile: the one tile that
+    // leaves the app, so the one tile that holds 2 x dwell — dad 9/17)
     await page.goto(BASE + "&board=show-bluey-next", { waitUntil: "load" });
     await page.waitForFunction(() => window.Board && window.Board.session.currentId === "show-bluey-next", null, { timeout: 8000 });
     const exitTile = page.locator(".tile.type-exit");
-    assert.equal(await exitTile.evaluate((el) => el.dataset.dwellMs), "2400", "exit keeps the exit hold");
+    const exitDwell = (await (await fetch(new URL("/settings", BASE))).json()).dwellMs;
+    assert.equal(await exitTile.evaluate((el) => el.dataset.dwellMs), String(2 * exitDwell),
+                 `the exit tile holds 2 x her dwell (${exitDwell}ms), like the bar's own doors`);
     await resetLog(page);
     await exitTile.click();
     await page.waitForTimeout(200);
     assert.equal(exitHits, 1, "all-done POSTs /kiosk/exit exactly once");
-    assert.deepEqual(await log(page), [{ call: "stop" }], "exit is silent");
+    // Silent means NOTHING IS SAID. Since 9/17 the grid's "All done" tile fires
+    // the bar's own 🚪 rather than keeping a second copy of the round trip, so
+    // the barge-in stop lands twice — onTile's, then the door's onLeave. Two
+    // Speech.stop()s are one silence; a `say` would be the regression.
+    const calls = await log(page);
+    assert.ok(calls.length >= 1 && calls.every((c) => c.call === "stop"),
+              "exit is silent: only barge-in stops, never a say — " + JSON.stringify(calls));
     assert.ok(await page.evaluate(() => !!window.Board), "no fallback navigation on a closed exit");
     await ctx.close();
   } finally { await browser.close(); }
@@ -642,7 +654,7 @@ test("movies sheet: a gaze parked on the search grid activates nothing, and the 
 
     const box = await page.locator("#sheetPick0").boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(2600);        // > the longest hold on the board (2400ms door)
+    await page.waitForTimeout(2600);        // > the longest hold on the board (the 2 x dwell doors)
     assert.equal(await page.evaluate(() => window.__activateCount), 0, "a parked gaze never picks a row");
     assert.equal(await page.locator(".dwell-active").count(), 0, "and no dwell fill starts on the grid");
     await page.mouse.move(under.x + under.width / 2, under.y + under.height / 2);

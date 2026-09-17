@@ -3,7 +3,9 @@
 // dwell.js drives gaze holds via class="dwell", a touch tap fires click() — one
 // click handler covers both input paths.
 import { createSession } from "./board-model.js";
-import { mountBoard, mountDoorBar } from "./board-render.js";
+import { mountBoard } from "./board-render.js";
+// the message bar is era-core's now (9/17) — one strip for all five apps.
+import { mountDoorBar } from "../lib/doorbar.js";
 import { mountPartnerStrip, refreezeIfOpen } from "./board-partner.js";
 import { mountArrange } from "./board-arrange.js";
 import { createMusicPlayer } from "./music-player.js";
@@ -166,11 +168,32 @@ function bookNews(c, watched) {
 // novice who just uploaded photos saw either nothing or raw photo dumps —
 // the splash must say what worked and what the ONE next step is). The hub's
 // /clothing/status tells us which state the family is in.
+// The waiting screen's bar, kept so boot can TEAR IT DOWN before the board's
+// own goes up. era-core's bar owns two listeners that outlive the element —
+// `visibilitychange` on document and `resize` on window — so clearing the
+// splash out of the DOM is not the same as ending it: a 💬 taken on the waiting
+// screen stays armed on a strip nobody can see, and her return then wakes two
+// bars instead of one. destroy() + the matching removeEventListener is the
+// whole fix, and it has to happen HERE because this is the only place that
+// still holds the handle. (9/17, T5 review.)
+let splashBar = null;
+
 function showSplash(app) {
   app.innerHTML = "";
   // The same door strip the board itself wears: a splash that can last minutes
-  // (naming 40 photos) is still a screen she must be able to leave (dad 9/3).
-  const { bar, sizeBar } = mountDoorBar(app, () => speech.stop && speech.stop());
+  // (naming 40 photos) is still a screen she must be able to leave (dad 9/3) —
+  // and, since 9/17, still a screen she must be able to leave in order to TALK.
+  // There is no music on a splash, so onPause/onResume are speech only.
+  // /settings has already landed by the time boot() shows the splash, so the
+  // real dwell and the real pauseGoes go on right here.
+  const door = mountDoorBar(app, {
+    onLeave: () => speech.stop && speech.stop(),
+    onPause: () => speech.stop && speech.stop(),
+  });
+  const { bar, sizeBar } = door;
+  splashBar = door;                  // boot ends it before the board's bar begins
+  door.setDwell(clampDwell(settings.dwellMs));
+  door.setPause(settings.pauseGoes === "tdsnap");
   window.addEventListener("resize", sizeBar);
   const d = document.createElement("div");
   d.className = "splash";
@@ -191,7 +214,7 @@ function showSplash(app) {
     // this screen too — the strip used to mount only once a recipe had
     // loaded, and a family that ticked Music at install then had no way to
     // reach the one control that fills it (VM QA 9/5, T7.6). Pointer-only as
-    // ever; the door stays the bar's only dwell target. A landed song ends the
+    // ever; the two doors stay the bar's only dwell targets. A landed song ends the
     // splash through the caller's own retry. "+ Add" alone: there is nothing
     // to arrange on an empty board, and mountArrange (which claims the tap)
     // only runs once a board is up — so ⇅ Arrange here could only ever reach
@@ -309,7 +332,18 @@ function startWatcher(state) {
       if (state.offline) { state.offline = false; setNet(false); }
       const etag = res.headers.get("etag") || "";
       if (etag && etag !== state.etag) pending = true;
-      if (pending && idleFor() >= T.idleMs) { location.reload(); return; }
+      // ...and only while she can SEE it. Since 💬 PAUSE TO TALK (dad 9/17) the
+      // board spends minutes minimized under TD Snap with her song paused
+      // mid-verse, and a minimized page is idle by definition — no pointermove
+      // ever reaches it — so the idle guard that has always stopped a mid-use
+      // yank is inert exactly when she is most exposed. A Drive sync, a clothing
+      // rebuild or a new song would reload it, and /kiosk/resume would hand her
+      // back a fresh board with no song. A page nobody is looking at never
+      // reloads itself; `pending` keeps, and the next tick after she is back
+      // (and still idle) lands it.
+      if (pending && idleFor() >= T.idleMs && document.visibilityState === "visible") {
+        location.reload(); return;
+      }
     } catch {
       if (!state.offline) { state.offline = true; setNet(true); }
     }
@@ -446,19 +480,33 @@ async function boot() {
     });
   }
   const session = createSession(r.json);
+  // End the splash's bar BEFORE the DOM it lives in is thrown away: innerHTML =
+  // "" removes the strip but not era-core's listeners (the same `sizeBar`
+  // reference we added above is the one to remove), and a 💬 taken while she
+  // waited would otherwise still be armed on a bar that is no longer on screen.
+  if (splashBar) {
+    window.removeEventListener("resize", splashBar.sizeBar);
+    splashBar.destroy();
+    splashBar = null;
+  }
   app.innerHTML = ""; // clear splash if it was up
   // Songs Board (spec 8/24): the player exists only when the recipe carries
   // song tiles — the outfit board never pays for it.
   const allButtons = (r.json.boards || []).flatMap((b) => b.buttons || []);
   const music = allButtons.some((b) => b && b.type === "song")
     ? createMusicPlayer({ volCap: musicVolCap }) : null;
-  const api = mountBoard({ mount: app, session, speech, dwellMs, music });
+  // pauseGoes (dad 9/17) decides whether the bar wears the 💬 at all: it is the
+  // hub's own answer to "is there a gaze engine and a TD Snap to go and talk
+  // in?". An OLD hub omits the key entirely, and a missing key means "home", so
+  // no 💬 is ever mounted against a hub that could not honour it.
+  const api = mountBoard({ mount: app, session, speech, dwellMs, music,
+                           pauseGoes: settings.pauseGoes });
 
   // the grown-up's strip in the header (T4.4, dad's 9/4 amendment): "+ Add" and
   // "⇅ Arrange" on the two boards a grown-up curates, and on no other. Mounted
   // here, after the bar exists, because the recipe name is board.js's to know.
   // Touch/click only — board-partner.js gives it no .dwell, so her gaze cannot
-  // reach it and the door stays the bar's one dwell target.
+  // reach it and the two doors stay the bar's only dwell targets (dad 9/17).
   const partner = mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME,
                                       settings, music });
 

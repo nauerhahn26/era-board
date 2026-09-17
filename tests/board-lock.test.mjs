@@ -9,8 +9,9 @@
 // So this suite pins the price of the button as hard as board-partner-strip.mjs
 // pinned the strip's:
 //   * the lock rides in the pointer-only #partnerStrip, carries no .dwell and no
-//     data-dwell-* attribute, and #barDoor stays the message bar's ONLY .dwell
-//     (the 9/4 amendment's second half is law);
+//     data-dwell-* attribute, and the two DOORS stay the message bar's only
+//     .dwell (the 9/4 amendment's second half is law; 9/17 made it two doors —
+//     🚪 leave and 💬 pause-to-talk — and not one thing more);
 //   * it answers a FINGER and nothing else — a tap does nothing, a mouse hold
 //     does nothing (ERAgaze drives the real cursor, so gaze == mouse here);
 //   * locked, only the media tiles (song / full / stop / movie / episode) go
@@ -151,7 +152,7 @@ test("a 1600ms finger on 🔒 locks the board; the strip stays gaze-proof", asyn
     // --hold-ms is what the ring's sweep is timed to. Both must be there while
     // the finger is still down, and gone when it lifts.
     let ring = null;
-    await hold(page, "#stripLock", 1900, async () => {          // > holds.navMin (1600)
+    await hold(page, "#stripLock", 1900, async () => {          // > the lock's own 1600ms finger hold
       ring = await page.evaluate(() => {
         const b = document.getElementById("stripLock");
         return { holding: b.classList.contains("holding"),
@@ -169,7 +170,7 @@ test("a 1600ms finger on 🔒 locks the board; the strip stays gaze-proof", asyn
     assert.ok(stored.until > Date.now() + 40 * 60 * 1000, "45 minutes from now: " + stored.until);
     assert.equal(after.btnLocked, true, "the button says so");
     assert.equal(after.btnDwell, false, "and is STILL not a gaze target");
-    assert.deepEqual(after.barDwell, ["barDoor"], "the door is the bar's only dwell target");
+    assert.deepEqual(after.barDwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
     assert.match(after.warn, /^Locked until \d{1,2}:\d{2}/, "the banner names the time: " + after.warn);
     assert.equal(after.warnDwell, false, "the banner is touch-only too");
     assert.equal(after.mediaAsleep, after.media, "every media tile is inert");
@@ -223,7 +224,7 @@ test("locked: a song tile is inert and silent, and the door still leaves", async
     assert.equal(after.board, s.board, "and the board did not even turn the page");
 
     // the way out is NEVER taken away from her.
-    assert.deepEqual(after.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
+    assert.deepEqual(after.barDwell, ["barDoor", "barTalk"], "the two doors are still the bar's only dwell targets");
     await page.locator("#barDoor").click();
     await page.waitForTimeout(600);
     assert.equal(exits.length, 1, "the door still hands the screen back");

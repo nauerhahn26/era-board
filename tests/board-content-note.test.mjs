@@ -69,7 +69,9 @@ test("the book note follows the build and ends as the tap to the review page", a
 
     const note = page.locator("#contentNote");
     assert.equal(await note.isVisible(), false, "no books building: no footer");
-    assert.equal(await page.locator(".msgbar > *").count(), 1, "the bar carries the door and nothing else");
+    // AMENDED 9/17 (dad): two doors — 🚪 and 💬 — and nothing else. 💬 is in the
+    // DOM on every board, hidden until /settings says pauseGoes:"tdsnap".
+    assert.equal(await page.locator(".msgbar > *").count(), 2, "the bar carries the two doors and nothing else");
     assert.equal(await page.evaluate(() => document.getElementById("contentNote").classList.contains("dwell")),
       false, "the book note is never a gaze target");
 
@@ -97,7 +99,7 @@ test("the book note follows the build and ends as the tap to the review page", a
     assert.equal(href, "/book-review/?slug=tabby-mctat", "flagged book links to its review page");
     assert.equal(await page.evaluate(() => document.querySelectorAll("#contentNote .dwell").length), 0,
       "the review link is touch-only");
-    assert.equal(await page.locator(".msgbar > *").count(), 1, "still nothing added to the bar");
+    assert.equal(await page.locator(".msgbar > *").count(), 2, "still nothing added to the bar");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }

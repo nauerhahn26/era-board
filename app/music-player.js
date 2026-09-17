@@ -51,9 +51,12 @@ function postEvent(songId, action) {
   } catch { /* telemetry is nice-to-have, never load-bearing */ }
 }
 
-// createMusicPlayer({ onState }) -> { play, stop, playingId, prefetch, cached }
+// createMusicPlayer({ onState }) -> { play, stop, pause, resume, playingId,
+//                                     prefetch, cached }
 //   onState(playingId|null) fires on every playback state change so the
 //   renderer can move the `.playing` tile marker.
+//   pause/resume are the 💬 talk door's pair (dad 9/17) and nothing else's:
+//   a pause is NOT a stop, it keeps the song, the spot and the marker.
 export function createMusicPlayer({ onState, volCap } = {}) {
   const audio = new Audio();
   audio.preload = "auto";
@@ -132,6 +135,10 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   // out, FULL SONG continues from right there and plays the rest — only a
   // fresh pick or a finished song forgets it. The hero still starts fresh.
   let clipEnded = null;   // { id } — position lives in the paused audio element
+  // The 💬 talk door paused us and is the only thing that may un-pause us
+  // (pauseForTalk/resumeFromTalk below). Declared up here with the rest of the
+  // playback state, because play() and stop() both have to clear it.
+  let pausedByBar = false;
 
   audio.addEventListener("ended", () => {
     // one pick = one song: at the end, silence. Nothing auto-plays.
@@ -168,6 +175,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     // btn: { song_id, audio: "music/<file>", v, clip_ms }
     const g = ++gen;
     try { audio.pause(); } catch {}
+    pausedByBar = false;                 // a fresh pick outranks a talk-pause
     resume = null;                       // a fresh pick forgets any paused spot
     clipEnded = null;
     clipLimitMs = full ? null : clipOf(btn);
@@ -179,6 +187,10 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     if (blob) { objectUrl = URL.createObjectURL(blob); audio.src = objectUrl; }
     else { audio.src = "/" + btn.audio; }   // last resort: straight stream
     audio.currentTime = 0;
+    // 💬 landed mid-load: stay silent; resume() presses play. The pick is hers
+    // and the element is loaded and parked at 0 — exactly the state pause()
+    // would have left it in, had there been anything to pause when she asked.
+    if (pausedByBar) return;
     audio.play().catch(() => { if (g === gen) state(null); });
   }
 
@@ -209,6 +221,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   function stop() {
     gen++;
     clipEnded = null;
+    pausedByBar = false;   // a real stop (🚪, the lock, leaving the page) ends the pause too
     const was = playing;
     if (was && audio.currentTime > 0 && !audio.ended) {
       // remember the spot (and whether the whole song was authorized)
@@ -218,6 +231,43 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     try { audio.pause(); } catch {}
     state(null);
     if (was) postEvent(was, "stop");
+  }
+
+  // ---- pause to talk (dad 9/17, spec §6) ------------------------------------
+  // The 💬 door takes her OFF this screen for a minute so she can say something
+  // in TD Snap, and the launcher brings this same kiosk back. That is NOT a
+  // stop(): stop() forgets the clip/full mode, posts a "stop" event and clears
+  // the `.playing` marker, so coming back she would face a silent board and
+  // have to find her song again. pause() freezes the element exactly where it
+  // is — same src, same currentTime, same clip cap, same marker — and resume()
+  // presses play. Only the bar may call these, and only in that pair.
+  //
+  // The 40-second clip limit needs nothing here: it is not a timer, it is a
+  // `timeupdate` comparison against audio.currentTime (above), and a paused
+  // element's currentTime does not advance. A 12-second pause inside a 40-second
+  // clip therefore still ends the clip at the 40th second OF THE SONG.
+  // (named ...ForTalk inside the module because `resume` is already taken here
+  // by the HERO's remembered spot — a different idea entirely. The api exposes
+  // them as pause/resume, which is what the bar asks for.)
+  function pauseForTalk() {
+    // The PICK, not the element: play() marks the song hers the moment she
+    // touches the tile and only reaches audio.play() after the blob lands (a
+    // school wifi makes that seconds). An `audio.paused` guard here reads that
+    // loading window as "nothing to keep", latches nothing, and the song then
+    // starts at full volume under her talker — she cannot even see the board to
+    // stop it. So: anything picked is something to keep, and play()'s own
+    // pausedByBar guard holds the note that was still in flight.
+    if (playing == null) return;                   // nothing picked: nothing to keep
+    try { audio.pause(); } catch {}
+    pausedByBar = true;
+    // onState is deliberately NOT fired: to the board, this song is still the
+    // one that is on, and its tile keeps the ring she picked it by.
+  }
+  function resumeFromTalk() {
+    if (!pausedByBar) return;                      // a visible that was never a pause
+    pausedByBar = false;
+    if (playing == null) return;                   // it ended or was stopped meanwhile
+    audio.play().catch(() => { state(null); });
   }
 
   // The HERO tile (the big cover art) — dad 8/24 r5: she often just LOOKS at
@@ -256,6 +306,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
 
   const api = {
     play, stop, full, heroTap, prefetch,
+    pause: pauseForTalk, resume: resumeFromTalk,
     onState: onState || null,   // renderer assigns; moves the .playing marker
     playingId: () => playing,
     isFull: () => playing != null && clipLimitMs == null,

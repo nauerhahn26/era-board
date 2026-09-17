@@ -4,11 +4,13 @@
 // the header, but only as a touch/click strip — the same class as the
 // #wardrobeNote footer. So this suite pins the amendment's whole price:
 //   * the strip exists on ?recipe=songs and ?recipe=movies and NOWHERE else
-//     (the outfit board's bar still carries the door and nothing else, which is
-//     what board-input / board-pixel / board-wardrobe-note keep asserting);
-//   * the door stays the message bar's ONLY dwell target, and nothing in the
-//     strip carries .dwell or a data-dwell-* attribute — a gaze parked on it
-//     for twice the longest hold must activate nothing;
+//     (the outfit board's bar still carries the doors and nothing else, which
+//     is what board-input / board-pixel / board-wardrobe-note keep asserting);
+//   * the two DOORS stay the message bar's only dwell targets — 🚪 leave and,
+//     since dad's 9/17 amendment, 💬 pause-to-talk (board-talk-door.test.mjs
+//     owns the 💬 itself) — and nothing in the strip carries .dwell or a
+//     data-dwell-* attribute: a gaze parked on it for twice the longest hold
+//     must activate nothing;
 //   * the bar is still the <=9% slab (dad 9/2 "the header is still too big");
 //   * and the sheet the strip opens SHIELDS the board — a gaze parked on a tile
 //     beneath the backdrop fires nothing, because a backdrop alone does not
@@ -98,14 +100,14 @@ const barShape = (page) => page.evaluate(() => {
   };
 });
 
-test("songs board: the strip rides in the bar, and the door keeps the bar's only dwell", async () => {
+test("songs board: the strip rides in the bar, and the doors keep the bar's only dwell", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page, errors } = await open(browser, "songs");
     const bar = await barShape(page);
-    assert.deepEqual(bar.kids, ["barDoor", "partnerStrip"], "the bar carries the door and the one partner strip");
+    assert.deepEqual(bar.kids, ["barDoor", "barTalk", "partnerStrip"], "the bar carries the two doors and the one partner strip");
     assert.ok(bar.stripInBar, "the strip is a child of the message bar");
-    assert.deepEqual(bar.barDwell, ["barDoor"], "the door is the bar's only dwell target");
+    assert.deepEqual(bar.barDwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
     assert.equal(bar.stripDwell, false, "nothing in the strip is a gaze target");
     assert.deepEqual(bar.stripDwellAttrs, [], "nothing in the strip carries a dwell attribute");
     // 9/14: 🔒 joined them (board-lock.test.mjs owns what it DOES). What this
@@ -125,7 +127,7 @@ test("a gaze parked on the strip activates nothing", async () => {
     // ERAgaze drives the real cursor, so a parked gaze IS a parked pointer.
     const box = await page.locator("#stripAdd").boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(2600);   // > the longest hold on the board (2400ms door)
+    await page.waitForTimeout(2600);   // > the longest hold on the board (the 2 x dwell doors)
     assert.equal(await page.evaluate(() => window.__activateCount), 0, "no dwell:activate ever fires on the strip");
     assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the pointer");
     assert.equal(await page.locator("#partnerSheet").count(), 0, "and the sheet never opened itself");
@@ -133,18 +135,18 @@ test("a gaze parked on the strip activates nothing", async () => {
   } finally { await browser.close(); }
 });
 
-test("movies board gets the strip; the outfit board's bar still carries the door alone", async () => {
+test("movies board gets the strip; the outfit board's bar still carries the doors alone", async () => {
   const browser = await chromium.launch();
   try {
     const movies = await open(browser, "movies");
     const mBar = await barShape(movies.page);
-    assert.deepEqual(mBar.kids, ["barDoor", "partnerStrip"], "movies board: door + strip");
-    assert.deepEqual(mBar.barDwell, ["barDoor"], "movies board: the door is still the bar's only dwell target");
+    assert.deepEqual(mBar.kids, ["barDoor", "barTalk", "partnerStrip"], "movies board: two doors + strip");
+    assert.deepEqual(mBar.barDwell, ["barDoor", "barTalk"], "movies board: the two doors are still the bar's only dwell targets");
     await movies.ctx.close();
 
     const today = await open(browser, "");
     const tBar = await barShape(today.page);
-    assert.deepEqual(tBar.kids, ["barDoor"], "her outfit board is untouched: the door and nothing else");
+    assert.deepEqual(tBar.kids, ["barDoor", "barTalk"], "her outfit board is untouched: the two doors and nothing else");
     assert.equal(tBar.strip, false, "no strip on the board she uses alone");
     await today.ctx.close();
   } finally { await browser.close(); }
@@ -342,7 +344,7 @@ test("the sheet shields the board: a gaze parked on a tile beneath it fires noth
     assert.equal(frozen.doorDwell, true, "the way out of the board is never taken away");
 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(2600);   // > the longest hold on the board (2400ms door)
+    await page.waitForTimeout(2600);   // > the longest hold on the board (the 2 x dwell doors)
     assert.equal(await page.evaluate(() => window.__activateCount), 0,
                  "a gaze parked under the sheet never fires the tile beneath it");
     assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the sheet");
@@ -423,7 +425,7 @@ test("no pack: the sheet offers the install, and the offer really installs it", 
 // because the strip mounted only after a recipe loaded. VM QA 9/5 (T7.6): a
 // family that ticked Music at install could never reach the one control that
 // fills it. So on the songs and movies boards the splash wears the strip too —
-// pointer-only as ever, the door still the only dwell target — and says what
+// pointer-only as ever, the two doors still the only dwell targets — and says what
 // to do; a landed song ends the splash through its own retry.
 test("no songs yet: the splash says so and carries + Add, and an add ends the splash", async () => {
   const browser = await chromium.launch();
@@ -464,8 +466,8 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     assert.doesNotMatch(note, /Google Drive/, "songs do not come from Drive");
     const shape = await barShape(page);
     assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
-    assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
-    assert.equal(await page.locator(".dwell").count(), 1, "…and the splash's only one at all");
+    assert.deepEqual(shape.barDwell, ["barDoor", "barTalk"], "the two doors are still the bar's only dwell targets");
+    assert.equal(await page.locator(".dwell").count(), 2, "…and the splash's only ones at all");
     assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
     // "⇅ Arrange" stays off the splash: nothing owns arrange mode until a board
     // is up, so the tap fell through to the fallback sheet — and its one hint
@@ -507,7 +509,7 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     assert.ok(under.tiles > 0, "the song tile was drawn");
     assert.equal(under.dwellTiles, 0, "a board mounted under an open sheet is asleep like one the sheet found");
     assert.equal(under.disabled, under.tiles, "every new tile says so in the attribute dwell.js reads");
-    assert.deepEqual(under.dwell, ["barDoor"], "the door is the page's one dwell target while the sheet is up");
+    assert.deepEqual(under.dwell, ["barDoor", "barTalk"], "the two doors are the page's only dwell targets while the sheet is up");
     // …and Close wakes THESE tiles, not the splash's dead nodes
     await page.locator("#sheetClose").click();
     await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
@@ -561,7 +563,7 @@ test("nothing to watch yet: the hub's empty recipe gets the splash and + Add, an
     assert.equal(await page.locator(".cell").count(), 0, "no grid of black rest cells under the words");
     const shape = await barShape(page);
     assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
-    assert.deepEqual(shape.barDwell, ["barDoor"], "the door is still the bar's only dwell target");
+    assert.deepEqual(shape.barDwell, ["barDoor", "barTalk"], "the two doors are still the bar's only dwell targets");
     assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
     assert.deepEqual(shape.labels, ["+ Add", "🔒"], "nothing to arrange on an empty shelf: + Add and the lock");
     // …and the first tile ends the splash by itself

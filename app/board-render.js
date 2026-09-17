@@ -1,6 +1,6 @@
-// board-render.js — DOM renderer + message bar (T1.2 + T1.3, post Gate-1 review).
-// Fixed chrome: a SLIM top strip (<=9% of the viewport) holding only the exit
-// door, top-left, and a board area below. Dad 9/2, matching Ellie's tablet:
+// board-render.js — DOM renderer (T1.2 + T1.3, post Gate-1 review).
+// Fixed chrome: a SLIM top strip (<=9% of the viewport) holding only the two
+// doors, and a board area below. Dad 9/2, matching Ellie's tablet:
 // "get rid of speak/clear we aren't using it. The header is still too big. The
 // icon for the exit can be smaller." The grid FILLS the remaining
 // screen with wide rectangular tiles (TD Snap style): rows x cols stretch to the
@@ -14,21 +14,35 @@
 // grow the label area -> (beside tiles) switch to stacked full-width -> only
 // then reduce that one label's font, floor 44px (~32pt vision spec), marked
 // data-font-reduced for the pixel gate.
+//
+// THE MESSAGE BAR IS NOT HERE ANY MORE (9/17). mountDoorBar moved to era-core
+// (lib/doorbar.js + lib/doorbar.css) so all five of Ellie's apps wear ONE bar.
+// BOARD LAW, amended by dad on 9/17: the bar carries TWO doors — 🚪 leave and
+// 💬 pause-to-talk — and nothing else; they are its only dwell targets. The 9/4
+// partner-strip amendment stands (touch-only, never .dwell). See era-core
+// lib/doorbar.js's header and docs/board-design-rules.md.
+//
+// HOLDS, amended by dad on 9/17 (spec §5.1, era-core contract.js): there are
+// TWO speeds and no ladder. The doors that take her off the screen hold
+// holdForExit(dwell) = 2 x her Settings dwell; EVERYTHING else on the board —
+// content tiles, nav doors, More/Back, movie and episode launches — holds
+// exactly her dwell. The invented nav bonus/floor is gone.
 
-import { CONTRACT as EC } from "../lib/contract.js";
+import { CONTRACT as EC, holdForExit } from "../lib/contract.js";
+import { mountDoorBar, barHeight } from "../lib/doorbar.js";
 import { createOutfitEvents } from "./board-events.js";
 import { isLocked, syncLock } from "./board-lock.js";
+
+// the bar's own geometry lives with the bar now; re-exported under the name the
+// board has always used so nothing downstream has to learn a second import.
+export { barHeight };
 
 // ---- one place for every tunable — VALUES COME FROM lib/contract.js (the
 // whitelist; mirrors knowledge/ux-contract.md). CONFIG keeps the renderer's
 // historical names so call sites read naturally; it holds no numbers of its own.
 export const CONFIG = {
-  BAR_H: EC.sizes.barH,          // reserved message-bar CEILING (tall displays)
-  // dad 9/2 ("the header is still too big"): the bar is a SLIM strip like the
-  // one on Ellie's tablet — at most 9% of the viewport height, so it costs
-  // ~96px on the i13 (1920x1080) and ~69px on the 1024x768 QA VM instead of a
-  // flat 124. The contract's barH stays the ceiling for very tall panels.
-  BAR_H_FRAC: 0.09,
+  // (the bar's height and its 9% fraction moved to era-core lib/doorbar.js with
+  // the bar itself, 9/17 — one strip, one place to change it.)
   // dad 9/5 ("you put too much spacing between the tiles in the new build"):
   // the pads and the gap are Ellie's own tablet's, measured off her photo —
   // side 28, vertical 12, gap ~1% of screen width (14px at 1920). Tighter
@@ -67,15 +81,14 @@ export const CONFIG = {
   // see sunny/cloudy image"; he asked for "roughly 40-48px each at 1024 wide").
   // The picture is the message here, exactly as on a photo tile's plate.
   WEATHER_FONT_MIN: 36,
-  // Dwell holds (ms) — T2.1. Content tiles (speak leaves) use the runtime
-  // /settings dwellMs; nav DOORS get a deliberate max(dwellMs+400, 1600).
-  // A tile is a "door" when it navigates (btn.load) or is a structural nav
-  // type (category/back/more). (Speak/Clear and their holds are gone — dad 9/2
-  // "get rid of speak/clear we aren't using it".)
+  // Dwell hold (ms) — AMENDED 9/17 (dad's two-speeds ruling, spec §5.1). Every
+  // tile on the grid holds her runtime /settings dwellMs: content tiles, nav
+  // doors, More/Back, movie and episode launches alike. The one exception is a
+  // grid `type:"exit"` tile, which leaves the app and so holds
+  // holdForExit(dwell) like the bar's own doors. The old nav bonus/floor rungs
+  // (DWELL_NAV_BONUS / DWELL_NAV_MIN / DWELL_EXIT) are GONE from the contract:
+  // the field ships ONE dwell per user and only leaving the screen buys more.
   DWELL_DEFAULT: EC.holds.content, // fallback when /settings is unreachable
-  DWELL_NAV_MIN: EC.holds.navMin,  // floor for nav-door holds
-  DWELL_NAV_BONUS: EC.holds.navBonus, // added to content dwell for doors, before the floor
-  DWELL_EXIT: EC.holds.exit,       // the round-trip door back to TD Snap
   // type -> tile background. rest black; yes green; outfit/clothing white;
   // control teal; category/back/more grey. (board-design-rules.md)
   // colors mirror lib/tokens.css primitives (CSS custom props can't cross into
@@ -94,99 +107,24 @@ export const CONFIG = {
 const LIGHT_BG = new Set(["outfit", "clothing", "word", "song",
                           "show", "movie", "episode"]);
 
-// structural nav types (doors even if a recipe omits an explicit load).
-// `show` is the movies board's door tile: it navigates to its show board
-// (btn.board) with full door semantics — silent, deliberate nav hold.
-const NAV_TYPES = new Set(["category", "back", "more", "show"]);
 // movie/episode tiles LAUNCH the streaming app via ERAgaze — the board never
-// plays video (movies spec §5). Leaving the board for another app is at least
-// as big a commitment as a nav door, so they ride the nav-tier hold (existing
-// rung, no new number invented — whitelist principle, ux-contract).
+// plays video (movies spec §5). Kept as a set because the ACTIVATION path still
+// branches on it (launchMovie, the watching marker); since 9/17 it no longer
+// buys a longer hold — a launch is a control like any other and holds her dwell.
 const LAUNCH_TYPES = new Set(["movie", "episode"]);
 // the EXIT tile leaves the app entirely (ERAgaze hands the screen to TD Snap) —
-// fixed longest hold, silent like every nav door (phase 4.1).
+// the grid's own copy of the bar's 🚪, so it carries the bar's hold and fires
+// the bar's door (phase 4.1; holds amended 9/17).
 const EXIT_TYPE = "exit";
 
-// Round-trip exit (phase 4.1): ERAgaze closes this kiosk and foregrounds TD Snap;
-// dev browsers fall back to a reload. Fired by the msgbar door (dad 8/5, D47) and
-// by any grid `type:"exit"` tile a recipe seats. Silent, like all nav doors.
-// The kiosk origin ($ServerUrl/board/) is pre-allowed for 127.0.0.1 calls by the
-// installer's Chrome LNA policies (windows-device.ps1 step 2b) — no Allow prompt.
-function exitToTDSnap() {
-  // The hub decides where the door goes (Settings, dad 9/3: TD Snap or New
-  // ERA) and does the engine hand-off + kiosk close itself. "closed" = the
-  // screen is being handed over; anything else = the hub's home, here.
-  fetch("/kiosk/exit", { method: "POST" })
-    .then((r) => r.json())
-    .then((j) => { if (j.action !== "closed") location.href = "/home/"; })
-    .catch(() => { location.href = "/home/"; });   // no hub answer: back to the hub
-}
-
-// The strip across the top carrying ONE thing: the door back to TD Snap,
-// top-left (dad 8/5, D47) — SMALL bar chrome, not a grid seat; same learned
-// position, hold (2400ms) and silent round trip as the literacy apps' 🚪.
-// Always armed, and mounted by the SPLASH too: while the clothing picker is
-// still naming photos there was no door at all, so a gaze user had no way
-// back to New ERA (dad 9/3). `onLeave` runs before the exit (stop speech/music).
-export function mountDoorBar(mount, onLeave) {
-  const bar = document.createElement("div");
-  bar.className = "msgbar";
-  const doorBtn = document.createElement("button");
-  doorBtn.type = "button"; doorBtn.className = "bardoor dwell"; doorBtn.id = "barDoor";
-  doorBtn.textContent = "🚪";
-  doorBtn.dataset.dwellMs = String(CONFIG.DWELL_EXIT);
-  doorBtn.dataset.dwellSay = "door";
-  doorBtn.setAttribute("aria-label", "door");
-  doorBtn.addEventListener("click", () => { if (onLeave) onLeave(); exitToTDSnap(); });
-  bar.appendChild(doorBtn);
-  mount.appendChild(bar);
-
-  // Size the strip and the door together. The door fills the bar's content
-  // height and is twice as wide as tall — deliberately smaller than the old
-  // 150x96 slab (dad 9/2: "the icon for the exit can be smaller"), which is
-  // this board's one sanctioned exception to the >=90px dwell-target law: a
-  // top corner is the easiest place on the screen to hit.
-  function sizeBar() {
-    const bh = barHeight(window.innerHeight);
-    bar.style.height = bh + "px";
-    // padding/border live in board.css — read them back rather than restate them
-    const cs = getComputedStyle(bar);
-    const px = (v) => parseFloat(v) || 0;
-    const inner = Math.max(24, bh - px(cs.paddingTop) - px(cs.paddingBottom)
-                              - px(cs.borderTopWidth) - px(cs.borderBottomWidth));
-    doorBtn.style.width = Math.round(2 * inner) + "px";
-    doorBtn.style.fontSize = Math.round(inner * 0.62) + "px";
-    // the bar's usable height, published for anything else the bar carries —
-    // today the pointer-only partner strip (board-partner.js, T4.4), which must
-    // track the strip exactly like the door does instead of restating 9%.
-    bar.style.setProperty("--bar-inner", Math.round(inner) + "px");
-    return bh;
-  }
-  sizeBar();
-  return { bar, doorBtn, sizeBar };
-}
-
-// A "door" navigates the board (btn.load) or is a structural nav type. Doors get
-// the deliberate hold; everything else (outfit/clothing/yes/word/control-speak
-// leaves) is a content tile on the runtime dwellMs.
-function isDoor(btn, type) {
-  return btn.load != null || NAV_TYPES.has(type) || LAUNCH_TYPES.has(type);
-}
-// dwellMs = runtime content hold (from /settings). Returns this tile's hold ms.
+// dwellMs = her runtime hold (from /settings). Returns this tile's hold ms.
+// TWO SPEEDS ONLY (dad 9/17): a tile that leaves the app holds 2 x dwell;
+// everything else — content, nav doors, More/Back, launches — holds dwell.
 function tileDwellMs(btn, type, dwellMs) {
-  if (type === EXIT_TYPE) return CONFIG.DWELL_EXIT;
-  if (!isDoor(btn, type)) return dwellMs;
-  return Math.max(dwellMs + CONFIG.DWELL_NAV_BONUS, CONFIG.DWELL_NAV_MIN);
+  return type === EXIT_TYPE ? holdForExit(dwellMs) : dwellMs;
 }
 
 // ---- sizing math (pure) ----------------------------------------------------
-
-// Slim message bar (dad 9/2): a fraction of the viewport, capped by the
-// contract's reserved height. Recomputed on every render, so a resize (or the
-// jump from the 1024x768 QA VM to the i13) keeps the same 9% strip.
-export function barHeight(vh) {
-  return Math.min(CONFIG.BAR_H, Math.round(vh * CONFIG.BAR_H_FRAC));
-}
 
 // Fill-the-area grid: tiles are free-floating rectangles; rows x cols stretch to
 // the available box with a fixed gap — the contract's gapFloor, which since 9/5
@@ -514,7 +452,7 @@ function layoutCells(board) {
 
 // ---- mount / render --------------------------------------------------------
 
-export function mountBoard({ mount, session, speech, dwellMs, music }) {
+export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }) {
   const sp = speech || { say() {}, stop() {} };
   // runtime content-tile hold from /settings (board.js clamps 600-3000).
   const contentDwellMs = (typeof dwellMs === "number" && isFinite(dwellMs))
@@ -524,11 +462,32 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // dad 9/2, holding her tablet next to the board: "get rid of speak/clear we
   // aren't using it. The header is still too big. The icon for the exit can be
   // smaller. Items in the top corners are more easily accessible." So the bar
-  // is now a slim strip carrying ONE thing: the exit door, top-left. Speak,
-  // Clear and the chips strip that fed them are gone — no recipe the hub
-  // generates has ever set `bar:true`, so nothing loses a feature.
+  // is a slim strip carrying the doors and nothing else. Speak, Clear and the
+  // chips strip that fed them are gone — no recipe the hub generates has ever
+  // set `bar:true`, so nothing loses a feature.
+  //
+  // 💬 PAUSE TO TALK (dad 9/17): mid-song she looks at the second door, the
+  // music stops WHERE IT IS and TD Snap comes forward; when the launcher hands
+  // the screen back the page goes visible again and the same second plays on.
+  // onPause/onResume are the board's half of that contract (spec §6); the bar
+  // and the hub own the rest. mountBoard is called after /settings has landed
+  // (board.js boot), so the real dwell and the real pauseGoes go on at mount.
   mount.innerHTML = "";
-  const { sizeBar } = mountDoorBar(mount, () => { sp.stop && sp.stop(); if (music) music.stop(); });
+  // no `appPath`: the bar's default IS location.pathname + location.search read
+  // at click time, which is what the launcher sends back on /kiosk/resume. The
+  // board never rewrites its URL (?recipe= / ?board= are read once at boot), so
+  // mount-time and click-time are the same string — and click-time cannot drift.
+  const bar = mountDoorBar(mount, {
+    onLeave: () => { sp.stop && sp.stop(); if (music) music.stop(); },
+    // she is going to TALK: go quiet and keep the place. NOT music.stop() —
+    // stop() forgets the clip/full mode and posts a "stop" event; pause() holds
+    // the element exactly where it is so resume() is the same second.
+    onPause: () => { sp.stop && sp.stop(); if (music) music.pause(); },
+    onResume: () => { if (music) music.resume(); },
+  });
+  const sizeBar = bar.sizeBar;
+  bar.setDwell(contentDwellMs);
+  bar.setPause(pauseGoes === "tdsnap");
 
   const area = document.createElement("div");
   area.className = "board-area";
@@ -689,8 +648,9 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
   // page's tiles straight back to sleep.
   let arranging = false;
   // the songs/movies grids' page turns: "Back" is type:"back", "More" is the
-  // teal type:"control" (server.js songsRecipe). Not the module's NAV_TYPES,
-  // which is the dwell-hold tier and covers doors this mode must not open.
+  // teal type:"control" (server.js songsRecipe). Deliberately its own short
+  // list, not "every door": arrange mode must let a page turn through and must
+  // NOT let a category or a show board open under a dragging finger.
   const PAGE_DOORS = new Set(["back", "control", "more"]);
   const isPageDoor = (btn) => PAGE_DOORS.has((btn.type || "").toLowerCase()) && btn.load != null;
 
@@ -738,7 +698,11 @@ export function mountBoard({ mount, session, speech, dwellMs, music }) {
     if (btn.combo && (type === "outfit" || type === "yes")) {
       outfitEvents.send(type === "yes" ? "yes" : "select", btn.combo);
     }
-    if (type === EXIT_TYPE) { if (music) music.stop(); exitToTDSnap(); return; }
+    // a grid `type:"exit"` tile is the bar's 🚪 seated in the grid — so it IS
+    // the bar's door: one round trip, one place it can change. (The exit's own
+    // fetch lived here until 9/17; it moved to era-core lib/doorbar.js with the
+    // bar, and clicking the door runs onLeave — sp.stop + music.stop — first.)
+    if (type === EXIT_TYPE) { bar.doorBtn.click(); return; }
     const r = session.activate(btn);
     // nav doors are SILENT by default; a door may voice itself as it navigates
     // (r.speak set) — the today-page outfit pick speaks then opens confirm.

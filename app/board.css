@@ -17,40 +17,28 @@ body{background:var(--paper); color:var(--ink);
 #app{position:fixed; inset:0; display:flex; flex-direction:column;
      width:100vw; height:100vh}
 
-/* ---- message bar: a SLIM strip, exit door only (dad 9/2) ----
-   "Get rid of speak/clear we aren't using it. The header is still too big. The
-   icon for the exit can be smaller. Items in the top corners are more easily
-   accessible." — so Speak, Clear and the chips strip that fed them are gone and
-   the bar is at most 9% of the viewport (board-render.js barHeight()), which
-   hands the rest of the screen to the grid. Height is set inline per render. */
-/* the deeper BOTTOM padding is load-bearing: the door fills the strip, so with
-   even padding it sat 27px from the first tile — under the mishit floor the
-   gates enforce at the time (28px; pixel gate, 9/2). The floor came down to 14
-   on 9/5 with dad's tighter tablet spacing, but the extra bottom padding stays:
-   it is the door's own breathing room against the first row, not the grid gap. */
-.msgbar{flex:0 0 auto; width:100%; display:flex; align-items:stretch;
-        gap:0; padding:6px 12px 10px; background:var(--bar-bg); color:var(--bar-ink);
-        border-bottom:2px solid var(--teal-deep)}
-
-/* top-left door back to TD Snap (dad 8/5, D47): small bar chrome, exit grey
-   (matches the type-exit tile color), full bar-content height, twice as wide as
-   tall. Always a live 2400ms dwell target — never disabled. Width and glyph
-   size come from board-render.js so the door tracks the strip. This is the
-   board's one sanctioned break from the >=90px dwell-target law (dad 9/2: the
-   exit icon can be smaller, and a top corner is the easiest reach on screen). */
-.bardoor{flex:0 0 auto; border:none; border-radius:12px; padding:0;
-         cursor:pointer; font-family:var(--font); line-height:1;
-         display:flex; align-items:center; justify-content:center;
-         background:#6B7B82; color:#FFFFFF}
+/* ---- message bar: NOT HERE ANY MORE (9/17) ----
+   `.msgbar` and `.bardoor` moved verbatim to era-core lib/doorbar.css, which
+   index.html links ahead of this file, so all five of Ellie's apps wear ONE
+   bar. The board's --bar-bg/--bar-ink/--teal-deep/--font tokens above are still
+   what colours it here; doorbar.css falls back to their literals on the
+   literacy pages, which define no bar tokens. The strip's own rules — the 9%
+   height, the load-bearing deeper BOTTOM padding, the door's grey slab — and
+   their reasoning went with them. What stays below is everything that is about
+   the BOARD's bar in particular: the partner strip that rides in it. */
 
 /* ---- partner strip (T4.4, dad's 9/4 amendment) — the grown-up's "+ Add" and
-   "⇅ Arrange" on the songs and movies boards, at the end of the bar opposite
-   the door. Touch/click only: NOT .dwell, never a gaze target (board-partner.js
-   gives it no dwell class and no dwell attributes, and the gates check).
-   Deliberately quiet chrome — smaller and flatter than the door, because this
+   "⇅ Arrange" on the songs and movies boards, at the RIGHT end of the bar.
+   Touch/click only: NOT .dwell, never a gaze target (board-partner.js gives it
+   no dwell class and no dwell attributes, and the gates check).
+   Deliberately quiet chrome — smaller and flatter than the doors, because this
    is a grown-up's control on a board that belongs to her. Height tracks the
-   bar's own content height via --bar-inner, set per render in board-render.js,
-   so the strip can never make the <=9% slab taller. ---- */
+   bar's own content height via --bar-inner, set per render by era-core's
+   doorbar.js, so the strip can never make the <=9% slab taller.
+   BOARD LAW as amended 9/17 (dad): the bar carries the TWO doors — 🚪 and 💬 —
+   and nothing else; they are its only dwell targets. The 9/4 amendment stands
+   and this strip is its whole extent. 💬 is absolutely centred on the bar and
+   this strip is right-anchored, so the two never meet (pinned at 1280x720). ---- */
 #partnerStrip{margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:10px}
 .stripbtn{height:var(--bar-inner, 40px); border:none; border-radius:10px; padding:0 14px;
           cursor:pointer; font-family:var(--font); line-height:1; white-space:nowrap;
@@ -60,7 +48,7 @@ body{background:var(--paper); color:var(--ink);
 
 /* ---- 🔒 the media lock (T3/T4, dad 9/14) — the third strip button. It is
    HELD, not tapped, so it has to show the hold happening: a conic-gradient ring
-   sweeps once over --hold-ms (board-lock.js writes the contract's holds.navMin
+   sweeps once over --hold-ms (board-lock.js writes its own 1600ms finger hold
    into that property, so the animation and the timer can never disagree). The
    ring runs on a pseudo-element, which cannot be tapped and so cannot swallow
    the pointerup that would cancel the hold.
@@ -342,7 +330,8 @@ body{background:var(--paper); color:var(--ink);
 #ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show{bottom:114px}
 
 /* ---- boot splash (T3.3) — nothing-to-show case; static text under the same
-   door strip the board wears (the one dwell target on it, dad 9/3) */
+   door strip the board wears (its dwell targets are the doors and nothing
+   else — dad 9/3 for 🚪, 9/17 for 💬) */
 .splash{flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
         font-family:var(--font); font-size:56px; font-weight:700; color:var(--ink);
         text-align:center; padding:0 6vw}
@@ -356,15 +345,16 @@ body{background:var(--paper); color:var(--ink);
    .dwell-active BEFORE it inserts the fill, so a transition can't fire (no initial
    render transitions) — we use an ANIMATION, which DOES run on first paint. The
    fill's HEIGHT still tracks true progress throughout; only its opacity is gated.
-   Selectors are .tile/.bardoor-scoped to outrank dwell.js's injected .dwell-fill
-   rules (equal specificity, appended last). NO dwell.js edit. */
-@keyframes dwellOnset{ 0%{opacity:0} 58%{opacity:0} 100%{opacity:.28} }
-.tile.dwell-active .dwell-fill, .bardoor.dwell-active .dwell-fill{
-  opacity:.28; animation:dwellOnset 340ms linear both}
-.tile.dwell-paused .dwell-fill, .bardoor.dwell-paused .dwell-fill{
-  animation:none; opacity:.14}
+   Selectors are .tile-scoped to outrank dwell.js's injected .dwell-fill rules
+   (equal specificity, appended last). NO dwell.js edit.
+   The identical .bardoor half — and the keyframe it shares — moved to era-core
+   lib/doorbar.css on 9/17 so the two doors carry the onset delay wherever the
+   bar goes; doorbar.css is linked first, so its @keyframes dwellOnset is the
+   one declaration of the name on this page and this file names no second. */
+.tile.dwell-active .dwell-fill{opacity:.28; animation:dwellOnset 340ms linear both}
+.tile.dwell-paused .dwell-fill{animation:none; opacity:.14}
 @media (prefers-reduced-motion: reduce){
-  .tile.dwell-active .dwell-fill, .bardoor.dwell-active .dwell-fill{animation:none}
+  .tile.dwell-active .dwell-fill{animation:none}
 }
 
 /* ---- Songs Board (spec 8/24): the active song's tile wears a thick green

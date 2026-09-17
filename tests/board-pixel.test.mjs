@@ -141,20 +141,24 @@ function MEASURE(C) {
     photoShares.push({ t, share: +share.toFixed(2) });
   }
   // SLIM BAR (dad 9/2 "the header is still too big"): the message bar is a
-  // strip, never more than 9% of the screen, and it carries the exit door and
+  // strip, never more than 9% of the screen, and it carries the doors and
   // nothing else — no Speak, no Clear, no chips.
   // AMENDED 9/4 (T4.4, dad's amendment): one pointer-only #partnerStrip may
   // ride at the far end of the bar on the songs and movies boards — the
-  // grown-up's "+ Add / ⇅ Arrange". It is not a BAR_EXTRA. What is NOT allowed,
-  // ever, is a second dwell target in the bar: the door is the only one, so the
-  // strip is audited for that instead (board-partner-strip.test.mjs pins the
-  // rest of it, including that her outfit board carries no strip at all).
+  // grown-up's "+ Add / ⇅ Arrange". It is not a BAR_EXTRA.
+  // AMENDED 9/17 (dad's pause-to-talk ruling): the bar carries TWO doors, 🚪
+  // barDoor and 💬 barTalk. What is NOT allowed, ever, is a THIRD dwell target
+  // in the bar — this is the allow-list that says so, and a violation naming
+  // anything but barTalk here is a real regression, not the amendment.
+  // (board-partner-strip.test.mjs pins the strip's half, including that her
+  // outfit board carries no strip at all; board-talk-door.test.mjs pins 💬.)
+  const BAR_DOORS = ["barDoor", "barTalk"];
   const barEl = document.querySelector(".msgbar");
   const barPct = barEl ? +((barEl.getBoundingClientRect().height / vh) * 100).toFixed(1) : null;
   const barExtras = barEl ? [...barEl.children].map((el) => el.id || String(el.className))
-                                               .filter((n) => n !== "barDoor" && n !== "partnerStrip") : [];
+                                               .filter((n) => !BAR_DOORS.includes(n) && n !== "partnerStrip") : [];
   const barStrips = barEl ? barEl.querySelectorAll("#partnerStrip").length : 0;
-  const barDwellExtras = barEl ? [...barEl.querySelectorAll(".dwell")].map(lbl).filter((n) => n !== "barDoor") : [];
+  const barDwellExtras = barEl ? [...barEl.querySelectorAll(".dwell")].map(lbl).filter((n) => !BAR_DOORS.includes(n)) : [];
   // BIG PICTURES (dad 9/2 "change bottoms image for bottoms is too small"):
   // every pictogram tile shows a real picture, never a speck above the word.
   const iconSqueezed = [];
