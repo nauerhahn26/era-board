@@ -20,7 +20,17 @@ import { createOutfitEvents } from "../public/board/board-events.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO = path.resolve(__dirname, "..");
-const PORT = 8391; // board-routes uses 8390; never the live 8377
+// 8451, and never the live 8377. It was 8391 until 9/17, which era-hub's
+// reader-ui.test.mjs ALSO claims — invisible in either repo alone, and a real
+// failure in the gate, which flattens every repo's suites into one directory
+// and runs them from there. A squatter on the port answers the
+// `waitFor(/settings)` probe below (any hub serves it), so this suite waits
+// happily while the child it spawned dies on EADDRINUSE and every server-side
+// assertion then talks to the OTHER suite's hub. Verified free across
+// era-hub/tests, the hub worktree's tests and era-board/tests before taking it:
+// the band has holes, so re-grep `84[0-9][0-9]` in all three before moving it
+// again.
+const PORT = 8451;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ---- part 1: client queue ---------------------------------------------------

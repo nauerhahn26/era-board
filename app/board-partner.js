@@ -56,13 +56,16 @@ function onKey(e) { if (e.key === "Escape") closeSheet(); }
 // the class and the attribute: the attribute stops the gaze fill, dropping the
 // class stops dwell.js's 150 ms long-press tap-rescue.
 //
-// The door keeps its dwell. The way out of the board is never taken away from
-// her, not even for a grown-up's sheet. And only what THIS sheet put to sleep
-// is woken again, so opening a sheet while arrange mode is on hands the board
-// back exactly as arrange mode left it.
+// BOTH doors keep their dwell. The way out of the board is never taken away
+// from her, not even for a grown-up's sheet — and since 9/17 there are two ways
+// out, 🚪 leave and 💬 pause-to-talk, so both are exempt: a child waiting while
+// a grown-up types a song into the sheet must still be able to say something.
+// And only what THIS sheet put to sleep is woken again, so opening a sheet
+// while arrange mode is on hands the board back exactly as arrange mode left it.
+const BAR_DOORS = new Set(["barDoor", "barTalk"]);
 function freezeBoard(except) {
   frozen = [...document.querySelectorAll(".dwell")]
-    .filter((el) => el.id !== "barDoor" && !except.contains(el));
+    .filter((el) => !BAR_DOORS.has(el.id) && !except.contains(el));
   for (const el of frozen) {
     el.classList.remove("dwell");
     el.setAttribute("data-dwell-disabled", "");
@@ -560,9 +563,12 @@ function openSheet(kind) {
 }
 
 // mountPartnerStrip({bar, recipe, arrange, settings, music}) -> the strip, or
-// null on a board that has none. The bar is board-render's .msgbar; the strip
-// sits at the end opposite the door (the door owns the top-left corner — the
-// easiest reach on screen). `arrange:false` leaves "⇅ Arrange" off: the splash
+// null on a board that has none. The bar is era-core's shared .msgbar
+// (lib/doorbar.js, 9/17); the strip sits at the RIGHT end, right-anchored by
+// `margin-left:auto`. 🚪 owns the top-left corner (the easiest reach on screen)
+// and 💬 is absolutely centred, out of the flex flow — which is exactly why it
+// is centred: a board growing this strip must not move her motor plan for the
+// talk door. `arrange:false` leaves "⇅ Arrange" off: the splash
 // has nothing to put in order, and nobody owns arrange mode until a board is
 // up, so the tap fell through to the fallback sheet and its films-only hint —
 // "a new film goes on at the end" over "No songs yet." (review 9/5).

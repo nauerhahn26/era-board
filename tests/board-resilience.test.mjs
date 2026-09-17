@@ -31,21 +31,26 @@ const CACHED = {
 
 // Hermetic page: audio dead-ended, timers compressed, boot counter in
 // sessionStorage (init script re-runs on reload, so it survives navigations).
-async function makePage(browser, { timing, primeCache } = {}) {
+async function makePage(browser, { timing, primeCache, hidden } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
   await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
   await ctx.route("**/outfit-event", (r) => r.fulfill({ status: 204, body: "" })); // hermetic: never write her real pick history
   await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
   await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
-  await ctx.addInitScript(({ timing, primeCache }) => {
+  await ctx.addInitScript(({ timing, primeCache, hidden }) => {
     window.__testHooks = true;
     window.__boardTest = timing;
     sessionStorage.bootCount = String((+sessionStorage.bootCount || 0) + 1);
+    // A minimized kiosk (she is in TD Snap saying something, 9/17) — the one
+    // state a driven browser cannot enter by itself. Re-applied on every
+    // navigation, which is what makes "she is still away" survive a reload.
+    if (hidden) Object.defineProperty(document, "visibilityState",
+                                      { configurable: true, get: () => "hidden" });
     if (primeCache) {
       localStorage.setItem("board:lastRecipe", JSON.stringify(primeCache.recipe));
       localStorage.setItem("board:lastRecipeEtag", primeCache.etag);
     }
-  }, { timing, primeCache });
+  }, { timing, primeCache, hidden });
   const page = await ctx.newPage();
   return { ctx, page };
 }
@@ -136,6 +141,41 @@ test("recipe changed but she is mid-use -> NO reload", async () => {
       await page.waitForTimeout(100);
     }
     assert.equal(await bootCount(page), 1, "board must never yank mid-use");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("she is away talking (hidden) -> NO reload; it waits for her to be back", async () => {
+  const browser = await chromium.launch();
+  try {
+    // 💬 PAUSE TO TALK (dad 9/17): the kiosk is minimized under TD Snap with her
+    // song paused mid-verse. "Idle" is now true BY DEFINITION — a minimized page
+    // gets no pointermove — so the one guard that has always protected her from
+    // a mid-use yank is inert exactly when she is most exposed: a Drive sync, a
+    // clothing rebuild or a new song lands a fresh etag, the board reloads
+    // itself, and /kiosk/resume hands her back a blank board with no song. A
+    // page nobody is looking at must never reload itself.
+    const { ctx, page } = await makePage(browser, {
+      timing: { pollMs: 150, retryMs: 150, idleMs: 50 }, // idle the instant she leaves
+      hidden: true,
+    });
+    await page.goto(BASE, { waitUntil: "load" });
+    await ready(page);
+    await ctx.route(RECIPE, (r) =>
+      r.request().method() === "HEAD"
+        ? r.fulfill({ status: 200, headers: { etag: 'W/"regenerated"' }, body: "" })
+        : r.fallback());
+    await page.waitForTimeout(1200);   // ≥7 poll ticks see the new etag
+    assert.equal(await bootCount(page), 1, "a page she cannot see must not reload under her");
+
+    // TD Snap hands the screen back: she is looking at it again, and still
+    // idle — so the reload it has been holding happens on the very next tick.
+    const nav = page.waitForEvent("framenavigated", { timeout: 10000 });
+    await page.evaluate(() => Object.defineProperty(document, "visibilityState",
+                                                    { configurable: true, get: () => "visible" }));
+    await nav;
+    await ready(page);
+    assert.equal(await bootCount(page), 2, "once she is back and idle, the newer recipe lands");
     await ctx.close();
   } finally { await browser.close(); }
 });

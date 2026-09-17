@@ -43,13 +43,13 @@
 // reachable at all (by design — Settings is where the minutes and the passcode
 // live).
 
-import { CONTRACT as EC } from "../lib/contract.js";
-
 const KEY = "era.lock";
-// The hold is the contract's nav-DOOR floor, not a number invented here: this
-// is a deliberate commitment on a kiosk, the same class of act as walking
-// through a door (whitelist principle, ux-contract §C).
-const HOLD_MS = EC.holds.navMin;
+// A grown-up's FINGER hold — not a gaze hold, so it is not the dwell contract's
+// business (dad 9/17: the contract now ships exactly two gaze speeds, dwell and
+// 2 x dwell, and `holds.navMin` is gone with the rest of the invented ladder).
+// 1600 ms is the number this button has always had and the number a grown-up
+// has learned; it lives here because this is the only thing that uses it.
+const HOLD_MS = 1600;
 // The tiles that make a noise. `show` is NOT here: it is a nav door to an
 // episode page, and navigating is never what the lock is for.
 const MEDIA_TYPES = new Set(["song", "full", "stop", "movie", "episode"]);

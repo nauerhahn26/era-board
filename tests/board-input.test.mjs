@@ -5,7 +5,7 @@
 // Voice is asserted via a Speech spy: board.js installs it only when
 // window.__testHooks is set (addInitScript, before any page script), logging
 // say/stop calls in order to window.__speechLog. Verifies barge-in ordering
-// (stop before say), SILENT nav doors, and the slim door-only bar (dad 9/2).
+// (stop before say), SILENT nav doors, and the slim two-door bar (dad 9/2, 9/17).
 //
 // Kept hermetic like the pixel gate: /voices disabled, /tts 503, /log swallowed.
 // Runs under `node --test` or `node tests/board-input.test.mjs`.
@@ -127,7 +127,7 @@ test("brief hover (300ms) then leaving does NOT activate", async () => {
   } finally { await browser.close(); }
 });
 
-test("tapping a nav door is SILENT; the bar carries the door and nothing else", async () => {
+test("tapping a nav door is SILENT; the bar carries the two doors and nothing else", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page } = await makePage(browser, { touch: true });
@@ -137,7 +137,7 @@ test("tapping a nav door is SILENT; the bar carries the door and nothing else", 
     assert.deepEqual(await log(page), [{ call: "stop" }], "nav door: no say");
 
     // dad 9/2: "get rid of speak/clear we aren't using it." The bar is a slim
-    // strip holding the exit door alone — no Speak, no Clear, no chips strip.
+    // strip holding the doors alone — no Speak, no Clear, no chips strip.
     const bar = await page.evaluate(() => {
       const b = document.querySelector(".msgbar");
       return {
@@ -155,12 +155,17 @@ test("tapping a nav door is SILENT; the bar carries the door and nothing else", 
     // pointer-only #partnerStrip — the grown-up's "+ Add / ⇅ Arrange" on the
     // songs and movies boards (board-partner-strip.test.mjs pins the whole of
     // it). This board is hers, so it has none; and whatever the bar carries,
-    // the door stays its ONLY dwell target. That half of the rule is law.
+    // the DOORS stay its only dwell targets. That half of the rule is law.
+    // AMENDED AGAIN 9/17 (dad's pause-to-talk ruling): the bar carries TWO
+    // doors — 🚪 leave and 💬 pause-to-talk — and nothing else; they are its
+    // only dwell targets (board-talk-door.test.mjs owns what 💬 DOES). 💬 is in
+    // the DOM on every board and only SHOWS where /settings says
+    // pauseGoes:"tdsnap", so it is here even on this engine-less test box.
     assert.ok(bar.kids.filter((k) => k === "partnerStrip").length <= 1, "at most one partner strip");
-    assert.deepEqual(bar.kids.filter((k) => k !== "partnerStrip"), ["barDoor"],
-                     "the door is the bar's only child besides the partner strip");
+    assert.deepEqual(bar.kids.filter((k) => k !== "partnerStrip"), ["barDoor", "barTalk"],
+                     "the two doors are the bar's only children besides the partner strip");
     assert.equal(bar.kids.includes("partnerStrip"), false, "her outfit board carries no partner strip");
-    assert.deepEqual(bar.dwell, ["barDoor"], "the door is the bar's only dwell target");
+    assert.deepEqual(bar.dwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
     // "the header is still too big" — the strip may not exceed 9% of the screen
     assert.ok(bar.hPct <= 9.1, `bar is a slim strip (was ${bar.hPct}% of the viewport)`);
     await ctx.close();
@@ -185,6 +190,23 @@ test("dwell onset delay: fill hidden for ~200ms, visible after (CSS-only)", asyn
       const f = document.querySelector(".tile.dwell-active .dwell-fill");
       return f ? parseFloat(getComputedStyle(f).opacity) : null;
     });
+    // AMENDED 9/17: board.css still ANIMATES dwellOnset for .tile, but the only
+    // @keyframes of that name now lives in era-core's doorbar.css (it moved with
+    // the bar, so the two doors carry the onset wherever they go). A page that
+    // dropped that <link> would keep the rule and lose the animation — the fill
+    // would flash at full opacity on every glance, the exact thing the onset
+    // delay exists to prevent. So pin both halves: the name the tile asks for,
+    // and a loaded sheet that answers it.
+    const onset = await page.evaluate(() => {
+      const f = document.querySelector(".tile.dwell-active .dwell-fill");
+      const declared = [...document.styleSheets].some((s) => {
+        try { return [...s.cssRules].some((r) => r.type === CSSRule.KEYFRAMES_RULE && r.name === "dwellOnset"); }
+        catch { return false; }   // cross-origin sheet: not ours anyway
+      });
+      return { animates: f ? getComputedStyle(f).animationName : null, declared };
+    });
+    assert.deepEqual(onset, { animates: "dwellOnset", declared: true },
+                     "the tile animates dwellOnset and doorbar.css — its one declaration — is loaded");
     assert.ok(early !== null && late !== null, "fill element exists during a hold");
     assert.ok(early < 0.03, `fill invisible in first ~200ms (was ${early})`);
     assert.ok(late > 0.05, `fill visible after the onset delay (was ${late})`);
@@ -192,7 +214,7 @@ test("dwell onset delay: fill hidden for ~200ms, visible after (CSS-only)", asyn
   } finally { await browser.close(); }
 });
 
-test("msgbar door (top-left, D47): always armed, 2400ms hold, silent POST /app/exit", async () => {
+test("msgbar door (top-left, D47): always armed, 2x-dwell hold, silent POST /app/exit", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page } = await makePage(browser, { touch: true });
@@ -215,7 +237,12 @@ test("msgbar door (top-left, D47): always armed, 2400ms hold, silent POST /app/e
       top: el.getBoundingClientRect().top,
     }));
     assert.ok(meta.inBar && meta.first, "door is the leftmost msgbar element");
-    assert.equal(meta.ms, "2400", "door carries the exit hold (EC.holds.exit)");
+    // AMENDED 9/17 (dad's two-speeds ruling, spec §5.1): the door's hold is not
+    // a fixed 2400 any more — it is TWICE HER OWN Settings dwell, so a family
+    // that tunes the field moves the door with it. Read from the hub the page
+    // read, never restated here: a number written twice is a number that drifts.
+    const dwell = (await (await fetch(new URL("/settings", BASE))).json()).dwellMs;
+    assert.equal(meta.ms, String(2 * dwell), `door holds 2 x her dwell (${dwell}ms)`);
     assert.ok(meta.dwell && meta.disabled !== "true", "door is armed with zero chips");
     assert.ok(meta.left < 200 && meta.top < 200, "door sits in the top-left corner");
 

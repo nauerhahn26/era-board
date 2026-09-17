@@ -54,9 +54,13 @@ test("footer follows the wardrobe work and offers the see-them tap", async () =>
     // the songs and movies boards. This is her outfit board, so the door is
     // still the whole bar — and on every board the door is its only dwell
     // target, which is the half of the rule that never moves.
-    assert.equal(await page.locator(".msgbar > :not(#partnerStrip)").count(), 1, "the bar carries the door and nothing else");
+    // AMENDED 9/17 (dad): the bar carries TWO doors — 🚪 and 💬 — and nothing
+    // else. 💬 is in the DOM on every board (hidden until /settings says
+    // pauseGoes:"tdsnap"), so the count is two wherever it used to be one.
+    assert.equal(await page.locator(".msgbar > :not(#partnerStrip)").count(), 2, "the bar carries the two doors and nothing else");
     assert.equal(await page.locator(".msgbar #partnerStrip").count(), 0, "no partner strip on her outfit board");
-    assert.equal(await page.locator(".msgbar .dwell").count(), 1, "the door is the bar's only gaze target");
+    assert.deepEqual(await page.locator(".msgbar .dwell").evaluateAll((els) => els.map((e) => e.id)),
+                     ["barDoor", "barTalk"], "the two doors are the bar's only gaze targets");
     assert.equal(await page.evaluate(() => document.getElementById("wardrobeNote").classList.contains("dwell")), false, "footer is never a gaze target");
 
     const noteSays = (re) => page.waitForFunction((src) => new RegExp(src).test(document.getElementById("wardrobeNote").textContent), re.source, { timeout: 4000 });
