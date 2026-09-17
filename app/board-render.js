@@ -232,6 +232,19 @@ function applyFit(labelEl, tiers, startPx) {
 
 // ---- tile / cell construction ---------------------------------------------
 
+// The recipe button behind a rendered tile (T7, spec 2026-09-17 §4). The
+// hold-to-edit sheet needs the WARDROBE ITEMS under a finger, and the one thing
+// it must never do is read them off the label — "Heart tee + leggings" is a
+// single string and two garments, and a name a grown-up corrects in the sheet
+// would change the parse. A WeakMap rather than a dataset blob: the objects are
+// the recipe's own ({id, name, category, occasion}), they die with the tile when
+// the next render throws the grid away, and nothing has to serialise a family's
+// clothing names into an attribute. The ids DO ride in `data-items`, because an
+// attribute is the only thing a selector (and the sheet's arming filter) can
+// match on.
+const BTN_OF = new WeakMap();
+export function tileButton(el) { return el ? BTN_OF.get(el) || null : null; }
+
 function restCell() {
   const d = document.createElement("div");
   d.className = "cell rest";
@@ -251,6 +264,13 @@ function makeTile(btn, w, h, dwellMs) {
   // `.type-song` is a STYLE hook — a selector built out of it would break the
   // day a board wants a song tile that is painted differently.
   el.dataset.tileType = type;
+  // …and, on the tiles that NAME clothes, which clothes (T7, 9/17). Tiles with
+  // no `items` — More, Back, Build my own, the Accessories door, the weather
+  // plate, a raw pre-catalog photo — get neither the attribute nor the entry,
+  // so `[data-items]` is the whole of the edit sheet's arming filter.
+  BTN_OF.set(el, btn);
+  if (Array.isArray(btn.items) && btn.items.length)
+    el.dataset.items = btn.items.map((i) => i && i.id).filter(Boolean).join(",");
   el.dataset.dwellMs = String(tileDwellMs(btn, type, dwellMs));
   el.setAttribute("aria-label", btn.label || "");
   el.dataset.dwellSay = btn.say != null ? btn.say : (btn.label || "");

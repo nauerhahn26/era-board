@@ -8,6 +8,7 @@ import { mountBoard } from "./board-render.js";
 import { mountDoorBar } from "../lib/doorbar.js";
 import { mountPartnerStrip, refreezeIfOpen } from "./board-partner.js";
 import { mountArrange } from "./board-arrange.js";
+import { mountEditSheet } from "./board-edit.js";
 import { createMusicPlayer } from "./music-player.js";
 
 const baseSpeech = window.Speech || {
@@ -543,6 +544,15 @@ async function boot() {
   const watcher = startWatcher({ etag: r.etag, offline: r.offline });
   startWardrobeWatch(watcher);
   startContentWatch();
+  // The hold-to-edit sheet (T8, dad 9/17), on the CLOTHING board only — like
+  // the coach and the wardrobe footer, and for the same reason: it is the only
+  // board whose tiles name wardrobe items. It borrows the watcher's checkNow()
+  // so "wait for the hub's rebuild, then reload" is the same ETag question the
+  // footer already asks, and it takes the category chips from the recipe root
+  // so the board never carries a list of its own to drift (spec §4.2).
+  if (RECIPE_NAME === "today")
+    mountEditSheet({ root: app, watcher,
+                     categories: Array.isArray(r.json.categories) ? r.json.categories : [] });
 }
 
 boot().catch((err) => {

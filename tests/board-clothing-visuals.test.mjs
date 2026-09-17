@@ -17,10 +17,19 @@ const JPG = Buffer.from(
   "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==",
   "base64");
 
+// The wardrobe items the hub names on the tiles that carry them (spec
+// 2026-09-17 §4). A tile that NAMES clothes carries the objects, not bare ids,
+// so nothing downstream has to parse "Heart tee + leggings" back into two
+// garments.
+const TEE = { id: "item_a", name: "Heart print tee", category: "top", occasion: "everyday" };
+const LEGGINGS = { id: "item_b", name: "Pink leggings", category: "pants", occasion: "everyday" };
+
 // EXACTLY the shapes the hub's clothing.js emits: cataloged mode (composite
 // outfit + confirm graph + item tiles) and plain pre-catalog mode.
 const FIXTURE = {
   locale: "en-US", root: "today", home_label: "Clothing",
+  categories: [{ id: "top", label: "Top" }, { id: "pants", label: "Pants" },
+               { id: "jacket", label: "Jacket" }],
   boards: [
     { id: "today", name: "What will I wear today?", rows: 3, columns: 4,
       buttons: [
@@ -28,7 +37,8 @@ const FIXTURE = {
           say: "Today it is hot.", row: 1, col: 1 },
         { label: "Heart tee + leggings", say: "Heart tee and pink leggings",
           type: "outfit", image: "wardrobe-outfits/outfit_0.jpg",
-          load: "confirm_0", say_on_load: true, combo: ["item_a", "item_b"] },
+          load: "confirm_0", say_on_load: true, combo: ["item_a", "item_b"],
+          items: [TEE, LEGGINGS] },
         { label: "This one", say: "I want to wear this one", type: "outfit",
           image: "clothing-web/IMG_1.jpg" },
         { label: "Build my own", type: "category", symbol: "clothes",
@@ -47,7 +57,7 @@ const FIXTURE = {
       buttons: [
         { label: "Back", type: "back", glyph: "←", load: "today", row: 1, col: 1 },
         { label: "Heart print tee", say: "Heart print tee", type: "clothing",
-          image: "wardrobe-items/item_a.jpg", row: 1, col: 2 },
+          image: "wardrobe-items/item_a.jpg", row: 1, col: 2, items: [TEE] },
       ] },
     { id: "choose_bottom", name: "Pants or shorts?", rows: 2, columns: 2,
       buttons: [
@@ -113,5 +123,59 @@ test("clothing tiles fill their cells like Ellie's board", async () => {
     assert.equal(await item.count(), 1, "item tile present");
     assert.ok(await item.evaluate((el) => el.classList.contains("photo")),
       "wardrobe-items/ tile fills the cell");
+  } finally { await browser.close(); }
+});
+
+// ---------------------------------------------------------- T7 (spec §4, 9/17)
+// The hold-to-edit sheet has to know WHICH wardrobe items are under a finger
+// before anything about the sheet exists — and it must never learn that by
+// reading the label ("Heart tee + leggings" is one string and two garments).
+// So the render stamps the ids on the tile for a selector to find, and keeps
+// the item OBJECTS in a WeakMap the sheet asks for by element. A tile that
+// names no clothes (More, Build my own, the weather plate, a raw pre-catalog
+// photo) carries neither — `[data-items]` is the whole arming filter.
+test("tiles that name wardrobe items carry their ids, and the objects behind them", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page } = await makePage(browser);
+
+    const outfit = page.locator('.tile.type-outfit', { hasText: "Heart tee" });
+    assert.equal(await outfit.getAttribute("data-items"), "item_a,item_b",
+      "the outfit tile stamps BOTH ids, in combo order");
+    const plain = page.locator('.tile.type-outfit', { hasText: "This one" });
+    assert.equal(await plain.getAttribute("data-items"), null,
+      "a pre-catalog photo names no catalogued item: no attribute at all");
+    assert.equal(await page.locator('.tile', { hasText: "Build my own" }).getAttribute("data-items"), null,
+      "…and neither does a door");
+
+    // The objects. Same module instance the page rendered with (an ES module is
+    // cached per URL), so this is the renderer's real WeakMap, not a second one.
+    const got = await page.evaluate(async () => {
+      const m = await import("./board-render.js");
+      const pick = (sel, text) => [...document.querySelectorAll(sel)]
+        .find((el) => (el.textContent || "").includes(text));
+      const o = pick(".tile.type-outfit", "Heart tee");
+      const d = pick(".tile", "Build my own");
+      return {
+        has: typeof m.tileButton === "function",
+        outfit: (m.tileButton(o) || {}).items || null,
+        door: (m.tileButton(d) || {}).items || null,
+      };
+    });
+    assert.equal(got.has, true, "board-render exports tileButton(el)");
+    assert.deepEqual(got.outfit, [
+      { id: "item_a", name: "Heart print tee", category: "top", occasion: "everyday" },
+      { id: "item_b", name: "Pink leggings", category: "pants", occasion: "everyday" },
+    ], "the recipe's own objects come back, whole");
+    assert.equal(got.door, null, "a door has no entry");
+
+    // and a garment tile on a browse grid carries exactly one
+    await page.evaluate(() => window.Board.show("cat_top"));
+    const item2 = page.locator(".tile.type-clothing");
+    assert.equal(await item2.getAttribute("data-items"), "item_a", "one garment, one id");
+    assert.equal(await page.evaluate(async () => {
+      const m = await import("./board-render.js");
+      return m.tileButton(document.querySelector(".tile.type-clothing")).items.length;
+    }), 1, "…and one object");
   } finally { await browser.close(); }
 });
