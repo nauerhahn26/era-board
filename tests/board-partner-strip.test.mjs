@@ -162,7 +162,7 @@ test("+ Add sends a pasted link as a link and says the song is coming", async ()
     assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the sheet is pointer-only too");
     await page.fill("#sheetInput", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     await page.locator("#sheetGo").click();
-    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
     assert.equal(posts.length, 1, "one POST /music/add");
     assert.deepEqual(posts[0].body, { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }, "a link goes as {url}");
     assert.ok(posts[0].type.startsWith("application/json"), "JSON, so the hub's own-door check lets it through");
@@ -202,7 +202,7 @@ test("a landed song refreshes the board — on close, and not one moment before"
     await page.locator("#stripAdd").click();
     await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
     await page.locator("#sheetGo").click();
-    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
                                null, { timeout: 4000 });
     stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
                                   mirrored: true, when: "now" } };
@@ -231,7 +231,7 @@ test("a song this device's shelf has not taken yet says so, and reloads nothing"
     await page.locator("#stripAdd").click();
     await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
     await page.locator("#sheetGo").click();
-    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
                                null, { timeout: 4000 });
     // the song is in the family's Drive folder, but the mirror has not carried
     // it to this device's shelf: there is no tile to reload for, and the sheet
@@ -286,19 +286,19 @@ test("a song that lands after the sheet was closed still refreshes the board", a
 // Bug 5's other half. The hub keeps yt-dlp's line for whoever is fixing it
 // (`last.error`) and writes the family's sentence beside it (`last.message`);
 // this sheet shows the second one and never the first. On the VM a parent got
-// "New ERA could not add that song. ERROR: [youtube] XqZsoesa55w: Sign in to
+// "Our Era Comms could not add that song. ERROR: [youtube] XqZsoesa55w: Sign in to
 // confirm you're not a bot. Use --cookies-from-browser or --cookies for the
 // authentication. See https://…" — truncated mid-word.
 test("a failed add shows the hub's sentence, never yt-dlp's, and reloads nothing", async () => {
   const browser = await chromium.launch();
   try {
-    const plain = "YouTube would not let New ERA fetch that one from here. Try another link, or add the song from an MP3 in the family's music folder.";
+    const plain = "YouTube would not let Our Era Comms fetch that one from here. Try another link, or add the song from an MP3 in the family's music folder.";
     let stat = { ...IDLE_ADD };
     const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
     await page.locator("#stripAdd").click();
     await page.fill("#sheetInput", "https://www.youtube.com/watch?v=XqZsoesa55w");
     await page.locator("#sheetGo").click();
-    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent),
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
                                null, { timeout: 4000 });
     stat = { ...IDLE_ADD, last: { ok: false, id: null, title: "", when: "now", message: plain,
                                   error: "could not look that up: ERROR: [youtube] XqZsoesa55w: Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-t" } };
@@ -403,7 +403,7 @@ test("no pack: the sheet offers the install, and the offer really installs it", 
     await install.waitFor({ timeout: 4000 });
     assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the offer is pointer-only too");
     await install.click();
-    await page.waitForFunction(() => /New ERA is getting/i.test(document.getElementById("sheetSay").textContent),
+    await page.waitForFunction(() => /Our Era Comms is getting/i.test(document.getElementById("sheetSay").textContent),
                                null, { timeout: 4000 });
     assert.equal(installs.length, 1, "one POST /packs/install");
     assert.deepEqual(installs[0].body, { pack: "media-tools" }, "and it names the pack the hub asked for");
@@ -483,7 +483,7 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
     await page.locator("#partnerSheet").waitFor();
     await page.fill("#sheetInput", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     await page.locator("#sheetGo").click();
-    await page.waitForFunction(() => /New ERA is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
     assert.deepEqual(posts, [{ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }]);
     // …and once the library exists the splash gives way to the board by itself
     songs = { locale: "en-US", root: "songs", home_label: "Songs",

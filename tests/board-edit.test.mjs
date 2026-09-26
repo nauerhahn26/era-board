@@ -407,7 +407,7 @@ test("a 400 keeps the sheet up, with the hub's own sentence and the values kept"
   const browser = await chromium.launch();
   try {
     const { ctx, page, posts, errors } = await open(browser,
-      { item: { status: 400, body: { error: "That isn't a category New ERA knows." } } });
+      { item: { status: 400, body: { error: "That isn't a category Our Era Comms knows." } } });
     await page.evaluate(() => window.Board.show("cat_top"));
     await page.locator(GARMENT).waitFor({ timeout: 4000 });
     await hold(page, GARMENT, 2000);

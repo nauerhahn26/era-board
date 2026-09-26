@@ -1,8 +1,8 @@
 // board-splash-door.test.mjs — the waiting screen keeps the door. Dad 9/3:
 // "While the clothing picker is building it should still have the door exit,
-// otherwise no way to return back to New ERA." The splash used to carry zero
+// otherwise no way to return back to [Our Era Comms]." The splash used to carry zero
 // dwell targets for the minutes a 40-photo ingest takes; now it wears the same
-// door strip the board does, and the door's fallback (no engine, or New ERA
+// door strip the board does, and the door's fallback (no engine, or Our Era Comms
 // chosen in Settings) lands on /home/. Network-stubbed like the coach suite; drives the live server.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -63,7 +63,7 @@ test("the building screen has the door, top-left, sized like the board's own", a
   } finally { await browser.close(); }
 });
 
-test("tapping the door on the building screen leaves for New ERA's home", async () => {
+test("tapping the door on the building screen leaves for the Our Era Comms home", async () => {
   const browser = await chromium.launch();
   try {
     const { page } = await makePage(browser);
