@@ -236,7 +236,10 @@ test("💬 mid-song: the music holds its place and the hub is told where she is"
     const before = await audioState(page);
     assert.equal(before.paused, false, "she is mid-song");
 
+    const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
     await page.locator("#barTalk").click();
+    await answered;                       // the bar arms its "she is coming back" latch on
+    await page.waitForTimeout(100);       // this reply, and reads its body a tick later (9/26)
     await page.waitForFunction(() => window.Music._audio.paused, null, { timeout: 4000 });
     const held = await audioState(page);
     assert.ok(held.t >= before.t - 0.01, `the element kept its place (${before.t} -> ${held.t})`);
@@ -261,7 +264,10 @@ test("she comes back: the same second plays on", async () => {
     await page.locator(".tile.type-song").first().click();
     await waitPlaying(page, "test-song-1");
     await playedPast(page, 0.2);
+    const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
     await page.locator("#barTalk").click();
+    await answered;                       // the bar arms its "she is coming back" latch on
+    await page.waitForTimeout(100);       // this reply, and reads its body a tick later (9/26)
     await page.waitForFunction(() => window.Music._audio.paused, null, { timeout: 4000 });
     const held = await audioState(page);
 
@@ -293,7 +299,10 @@ test("💬 while the song is still LOADING: it never starts under her talker", a
     await page.waitForFunction(() => window.Music.playingId() === "test-song-1", null, { timeout: 4000 });
     assert.equal((await audioState(page)).t, 0, "nothing has sounded yet — the blob is still in flight");
 
+    const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
     await page.locator("#barTalk").click();
+    await answered;                       // the bar arms its "she is coming back" latch on
+    await page.waitForTimeout(100);       // this reply, and reads its body a tick later (9/26)
     // the blob landing is the moment of truth: src is set on both sides of the
     // fix, so it is a fair synchronisation point and not a sleep.
     await page.waitForFunction(() => /^blob:/.test(window.Music._audio.src || ""), null, { timeout: 8000 });
@@ -329,7 +338,10 @@ test('💬 with no engine to answer ({action:"home"}): 💬 becomes the 🚪, an
     await waitPlaying(page, "test-song-1");
     await playedPast(page, 0.2);
 
+    const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
     await page.locator("#barTalk").click();
+    await answered;                       // the bar arms its "she is coming back" latch on
+    await page.waitForTimeout(100);       // this reply, and reads its body a tick later (9/26)
     await page.waitForFunction(() => window.Music.playingId() === null, null, { timeout: 4000 });
     assert.equal(pauses.length, 1, "it asked to pause first");
     assert.equal(exits.length, 1, "...and on 'home' it left through the door instead");

@@ -124,7 +124,12 @@ test("the splash's bar goes with the splash — her return reaches the board's o
     assert.equal(await page.locator(".msgbar").count(), 1, "the waiting screen wears one bar");
 
     // she asks to talk WHILE the board is still empty: this bar's pause is armed
-    await page.locator("#barTalk").click();
+    {
+      const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
+      await page.locator("#barTalk").click();
+      await answered;                     // the bar arms its "she is coming back" latch on
+      await page.waitForTimeout(100);     // this reply, and reads its body a tick later (9/26)
+    }
     await page.waitForFunction(() => true);
     assert.equal(pauses.length, 1, "the splash's 💬 reached the hub");
 
@@ -139,7 +144,12 @@ test("the splash's bar goes with the splash — her return reaches the board's o
     await page.locator(".tile.type-song").first().click();
     await page.waitForFunction(() => window.Music.playingId() === "test-song-1" &&
                                      window.Music._audio.currentTime > 0.1, null, { timeout: 8000 });
-    await page.locator("#barTalk").click();
+    {
+      const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
+      await page.locator("#barTalk").click();
+      await answered;                     // the bar arms its "she is coming back" latch on
+      await page.waitForTimeout(100);     // this reply, and reads its body a tick later (9/26)
+    }
     await page.waitForFunction(() => window.Music._audio.paused, null, { timeout: 4000 });
 
     // TD Snap hands the screen back. Exactly ONE bar may answer — the settle
