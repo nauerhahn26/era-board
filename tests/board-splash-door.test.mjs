@@ -1,8 +1,8 @@
 // board-splash-door.test.mjs — the waiting screen keeps the door. Dad 9/3:
 // "While the clothing picker is building it should still have the door exit,
-// otherwise no way to return back to New ERA." The splash used to carry zero
+// otherwise no way to return back to [Our Era Comms]." The splash used to carry zero
 // dwell targets for the minutes a 40-photo ingest takes; now it wears the same
-// door strip the board does, and the door's fallback (no engine, or New ERA
+// door strip the board does, and the door's fallback (no engine, or Our Era Comms
 // chosen in Settings) lands on /home/. Network-stubbed like the coach suite; drives the live server.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -63,7 +63,7 @@ test("the building screen has the door, top-left, sized like the board's own", a
   } finally { await browser.close(); }
 });
 
-test("tapping the door on the building screen leaves for New ERA's home", async () => {
+test("tapping the door on the building screen leaves for the Our Era Comms home", async () => {
   const browser = await chromium.launch();
   try {
     const { page } = await makePage(browser);
@@ -124,7 +124,12 @@ test("the splash's bar goes with the splash — her return reaches the board's o
     assert.equal(await page.locator(".msgbar").count(), 1, "the waiting screen wears one bar");
 
     // she asks to talk WHILE the board is still empty: this bar's pause is armed
-    await page.locator("#barTalk").click();
+    {
+      const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
+      await page.locator("#barTalk").click();
+      await answered;                     // the bar arms its "she is coming back" latch on
+      await page.waitForTimeout(100);     // this reply, and reads its body a tick later (9/26)
+    }
     await page.waitForFunction(() => true);
     assert.equal(pauses.length, 1, "the splash's 💬 reached the hub");
 
@@ -139,7 +144,12 @@ test("the splash's bar goes with the splash — her return reaches the board's o
     await page.locator(".tile.type-song").first().click();
     await page.waitForFunction(() => window.Music.playingId() === "test-song-1" &&
                                      window.Music._audio.currentTime > 0.1, null, { timeout: 8000 });
-    await page.locator("#barTalk").click();
+    {
+      const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
+      await page.locator("#barTalk").click();
+      await answered;                     // the bar arms its "she is coming back" latch on
+      await page.waitForTimeout(100);     // this reply, and reads its body a tick later (9/26)
+    }
     await page.waitForFunction(() => window.Music._audio.paused, null, { timeout: 4000 });
 
     // TD Snap hands the screen back. Exactly ONE bar may answer — the settle

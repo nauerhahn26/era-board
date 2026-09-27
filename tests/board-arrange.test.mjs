@@ -255,7 +255,7 @@ test("a hub that refuses the new order says so in its own words, and the tiles g
   const browser = await chromium.launch();
   try {
     const refusal = { error: "incomplete",
-                      message: "That order left songs out, so New ERA changed nothing. Reload the board and try again." };
+                      message: "That order left songs out, so Our Era Comms changed nothing. Reload the board and try again." };
     const { ctx, page, errors } = await open(browser, { order: { status: 400, body: refusal } });
     await enterArrange(page);
     const a = await centre(page, "test-song-1");

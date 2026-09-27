@@ -609,7 +609,7 @@ test("movies sheet: a row nobody can open is saved anyway, and the sheet says wh
 test("movies sheet: nothing found, and no key at all, both end at the paste box", async () => {
   const browser = await chromium.launch();
   try {
-    const none = "New ERA can look films up by name once a grown-up adds a TMDB key in Settings. " +
+    const none = "Our Era Comms can look films up by name once a grown-up adds a TMDB key in Settings. " +
                  "Until then, paste the film's link and the tile still goes up.";
     const { ctx, page, adds } = await sheetPage(browser, {
       lookup: { status: 200, body: { ok: true, provider: "none", region: "US", results: [], hint: none } },

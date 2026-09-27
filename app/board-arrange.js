@@ -182,7 +182,7 @@ export function mountArrange({ api, partner, recipe }) {
       });
     } catch {
       undo();                                  // nothing was saved: show the truth
-      say("New ERA is not answering. Check that the hub is running, then try again.");
+      say("Our Era Comms is not answering. Check that the hub is running, then try again.");
       done(false);
       return;
     }
@@ -192,7 +192,7 @@ export function mountArrange({ api, partner, recipe }) {
       // (music-add.js): show it, and put the tiles back where they were so the
       // board on screen and the board on disk never disagree.
       undo();
-      say(out.message || "New ERA could not save that order.");
+      say(out.message || "Our Era Comms could not save that order.");
       done(false);
       return;
     }

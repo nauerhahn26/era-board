@@ -169,7 +169,7 @@ function watchAdd() {
     catch { /* a blip: keep waiting, the download is on the hub, not here */ }
     if (st && st.running) {
       const who = st.running.title ? "“" + st.running.title + "”" : "that song";
-      say("New ERA is fetching " + who + " — " + st.running.phase + ".");
+      say("Our Era Comms is fetching " + who + " — " + st.running.phase + ".");
     } else if (st && st.last && st.last.when !== seenWhen) {
       inFlight = false;             // the answer is in, whichever it is
       // `mirrored:false` = the song is in the family's folder but this device's
@@ -188,7 +188,7 @@ function watchAdd() {
       // confirm you're not a bot. Use --cookies-from-browser …" on the sheet,
       // truncated mid-word. `last.error` still carries that for whoever is
       // fixing the hub; it is not for this screen.
-      else say(st.last.message || "New ERA could not add that song. Try again, or try another link.");
+      else say(st.last.message || "Our Era Comms could not add that song. Try again, or try another link.");
       return;                       // stop polling
     }
     if (Date.now() < until) pollTimer = setTimeout(tick, T.addPollMs);
@@ -205,7 +205,7 @@ function watchAdd() {
 async function sendSong(raw, goBtn) {
   const body = isLink(raw) ? { url: raw } : { query: raw };
   goBtn.disabled = true;
-  say("Sending that to New ERA…");
+  say("Sending that to Our Era Comms…");
   let res, out = {};
   try {
     res = await fetch("/music/add", {
@@ -214,7 +214,7 @@ async function sendSong(raw, goBtn) {
     });
   } catch {
     goBtn.disabled = false;
-    say("New ERA is not answering. Check that the hub is running, then try again.");
+    say("Our Era Comms is not answering. Check that the hub is running, then try again.");
     return;
   }
   try { out = await res.json(); } catch { /* an answer with no body: say the plain thing */ }
@@ -223,12 +223,12 @@ async function sendSong(raw, goBtn) {
     // 409 pack-missing / needs-local-drive / busy / manifest-unreadable, 400
     // bad-url — every one of them already carries a sentence a parent can act
     // on. Show it as it is.
-    say(out.message || "New ERA could not add that song.");
+    say(out.message || "Our Era Comms could not add that song.");
     // ...and "install it and try again" gets something to press.
     if (out.error === "pack-missing" && out.pack) offerInstall(out.pack, goBtn);
     return;
   }
-  say("New ERA is fetching that song. It will be on the board in a minute.");
+  say("Our Era Comms is fetching that song. It will be on the board in a minute.");
   watchAdd();
 }
 
@@ -247,7 +247,7 @@ function offerInstall(pack, goBtn) {
   b.addEventListener("click", async () => {
     b.disabled = true;
     if (goBtn) goBtn.disabled = true;            // adding cannot work until it lands
-    say("New ERA is getting the downloader. This takes a minute.");
+    say("Our Era Comms is getting the downloader. This takes a minute.");
     let res;
     try {
       res = await fetch("/packs/install", {
@@ -256,12 +256,12 @@ function offerInstall(pack, goBtn) {
       });
     } catch {
       b.disabled = false; if (goBtn) goBtn.disabled = false;
-      say("New ERA is not answering. Check that the hub is running, then try again.");
+      say("Our Era Comms is not answering. Check that the hub is running, then try again.");
       return;
     }
     if (!res.ok) {
       b.disabled = false; if (goBtn) goBtn.disabled = false;
-      say("New ERA could not start that download. Try again.");
+      say("Our Era Comms could not start that download. Try again.");
       return;
     }
     watchPack(b, goBtn);
@@ -344,7 +344,7 @@ function pickBody(hit) {
 // reports the outcome instead of following a status door.
 async function sendMovie(body, btn) {
   if (btn) btn.disabled = true;
-  say("Sending that to New ERA…");
+  say("Sending that to Our Era Comms…");
   let res, out = {};
   try {
     res = await fetch("/movies/add", {
@@ -353,7 +353,7 @@ async function sendMovie(body, btn) {
     });
   } catch {
     if (btn) btn.disabled = false;
-    say("New ERA is not answering. Check that the hub is running, then try again.");
+    say("Our Era Comms is not answering. Check that the hub is running, then try again.");
     return;
   }
   try { out = await res.json(); } catch { /* an answer with no body: say the plain thing */ }
@@ -361,7 +361,7 @@ async function sendMovie(body, btn) {
   if (!res.ok) {
     // 400 bad-url / bad-id, 409 needs-local-drive / catalog-unreadable — every
     // one of them already carries a sentence a parent can act on.
-    say(out.message || "New ERA could not add that film.");
+    say(out.message || "Our Era Comms could not add that film.");
     return;
   }
   clearResults();                          // the question is answered: one add per sheet
@@ -370,7 +370,7 @@ async function sendMovie(body, btn) {
     // The title is kept — a parent's list is not lost because nobody could
     // find a link — but it is NOT drawn, so say so rather than sending them to
     // look for a tile that is not there.
-    say(name + " is saved, but New ERA has no link to play it yet. Open the app it streams on and paste the film's address here.");
+    say(name + " is saved, but Our Era Comms has no link to play it yet. Open the app it streams on and paste the film's address here.");
     return;
   }
   // `mirrored:false` = the catalog is written in the family's folder but this
@@ -438,21 +438,21 @@ async function searchMovies(q, goBtn) {
     });
   } catch {
     goBtn.disabled = false;
-    say("New ERA is not answering. Check that the hub is running, then try again.");
+    say("Our Era Comms is not answering. Check that the hub is running, then try again.");
     return;
   }
   try { out = await res.json(); } catch { /* an answer with no body */ }
   goBtn.disabled = false;
   if (!sheet) return;                      // the parent closed it while we waited
   if (!res.ok) {
-    say(out.message || "New ERA could not look that up. Paste the film's link instead.");
+    say(out.message || "Our Era Comms could not look that up. Paste the film's link instead.");
     return;
   }
   const rows = Array.isArray(out.results) ? out.results : [];
   if (!rows.length) {
     // out.hint is the hub's own sentence for "no key" and "no deep links": it
     // names Settings and it names the paste box.
-    say(out.hint || "New ERA could not find anything called “" + q + "”. Paste the film's link instead.");
+    say(out.hint || "Our Era Comms could not find anything called “" + q + "”. Paste the film's link instead.");
     return;
   }
   drawResults(rows, out);
@@ -478,7 +478,7 @@ function openSheet(kind) {
   const asks = kind === "songs" || kind === "movies";
   if (asks) {
     hint.textContent = kind === "songs"
-      ? "Paste a link to the song, or type its name and New ERA takes the first hit."
+      ? "Paste a link to the song, or type its name and Our Era Comms takes the first hit."
       // Movies do NOT take the first hit: a name is searched and a grown-up
       // picks the row, because the wrong "peter rabbit" on a child's board is
       // a worse outcome than one more tap.
@@ -497,7 +497,7 @@ function openSheet(kind) {
     // cell last, so "the order the board shows" cannot be turned back into
     // `rank` without a decision nobody has made yet. Saying so is better than
     // a drag that moves a tile and then snaps back.
-    hint.textContent = "Moving the films around is not ready yet — a new film goes on at the end. New ERA chooses which film sits in the exploration tile.";
+    hint.textContent = "Moving the films around is not ready yet — a new film goes on at the end. Our Era Comms chooses which film sits in the exploration tile.";
   }
 
   const row = document.createElement("div");

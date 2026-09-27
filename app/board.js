@@ -260,14 +260,14 @@ function showSplash(app) {
       d.textContent = "We can see your clothing photos — great work! 🎉";
       h.href = "/settings/#ai";
       h.style.textDecoration = "underline"; h.style.cursor = "pointer";
-      h.textContent = "One more step: tap here to add an AI helper key in Settings, and New ERA will name each item and build daily outfits.";
+      h.textContent = "One more step: tap here to add an AI helper key in Settings, and Our Era Comms will name each item and build daily outfits.";
     } else if (s.guidance === "ai-quota") {
       // 429/RESOURCE_EXHAUSTED: the free tier's daily allowance is spent. It
       // comes back tomorrow, so say that rather than implying a fault (9/1).
       d.textContent = "Today's free AI allowance is used up";
       h.removeAttribute("href");
       h.style.textDecoration = "none"; h.style.cursor = "default";
-      h.textContent = "Your photos are safe. Google's free daily limit resets overnight — New ERA picks up where it left off and the outfits appear in the morning.";
+      h.textContent = "Your photos are safe. Google's free daily limit resets overnight — Our Era Comms picks up where it left off and the outfits appear in the morning.";
     } else if (s.guidance === "ai-busy") {
       // the AI provider throttled every photo (Google's free tier answers 503
       // "high demand" in bursts). The hub retries by itself; say so plainly
@@ -275,7 +275,7 @@ function showSplash(app) {
       d.textContent = "The AI helper is busy right now";
       h.removeAttribute("href");
       h.style.textDecoration = "none"; h.style.cursor = "default";
-      h.textContent = "Your photos are safe — New ERA keeps trying and the outfits appear by themselves, usually within an hour.";
+      h.textContent = "Your photos are safe — Our Era Comms keeps trying and the outfits appear by themselves, usually within an hour.";
     } else if (s.aiConfigured && !s.photos && !s.cataloged) {
       d.textContent = "Your AI helper is ready ✓";
       h.href = "/settings/#integrations";

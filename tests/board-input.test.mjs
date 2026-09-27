@@ -218,7 +218,7 @@ test("msgbar door (top-left, D47): always armed, 2x-dwell hold, silent POST /app
   const browser = await chromium.launch();
   try {
     const { ctx, page } = await makePage(browser, { touch: true });
-    // The hub owns the exit (Settings: TD Snap or New ERA, dad 9/3) and talks
+    // The hub owns the exit (Settings: TD Snap or Our Era Comms, dad 9/3) and talks
     // to ERAgaze itself. Intercept the hub's choke point so the wiring is
     // provable AND the "closed" path (no fallback navigation) is exercised.
     let exitHits = 0;
