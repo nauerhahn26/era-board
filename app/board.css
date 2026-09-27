@@ -416,8 +416,13 @@ body{background:var(--paper); color:var(--ink);
    swallow the pointerup that would cancel the hold.
    touch-action/user-select/callout are the Windows+WebKit long-press furniture
    (board-edit.js deliberately never preventDefaults the pointerdown — a tap on
-   a tile is her board — so the CSS side has to refuse it). */
-.board-area .tile[data-items]{touch-action:manipulation; -webkit-user-select:none; user-select:none;
+   a tile is her board — so the CSS side has to refuse it). touch-action is
+   `none`, NOT `manipulation`: manipulation still allows panning, so a firm
+   finger that rolled past the touch slop became a pan, Chromium sent
+   pointercancel, and the ring stopped with no sheet (dad 9/27). It is the lesson
+   era-core/dwell.js:58 learned on 7/28 and put on .dwell — which this rule,
+   being more specific, had been overriding on exactly these tiles. */
+.board-area .tile[data-items]{touch-action:none; -webkit-user-select:none; user-select:none;
   -webkit-touch-callout:none}
 .board-area .tile.holding::before{content:""; position:absolute; inset:0; z-index:2;
   pointer-events:none; border-radius:inherit; opacity:1;
