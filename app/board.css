@@ -52,10 +52,14 @@ body{background:var(--paper); color:var(--ink);
    into that property, so the animation and the timer can never disagree). The
    ring runs on a pseudo-element, which cannot be tapped and so cannot swallow
    the pointerup that would cancel the hold.
-   touch-action:manipulation keeps the panel from treating the hold as a pan;
-   the user-select/callout pair is the rest of the Windows/WebKit long-press
-   furniture board-lock.js's preventDefault cannot reach. ---- */
-.stripbtn.lock{touch-action:manipulation; -webkit-user-select:none; user-select:none;
+   touch-action is `none`, NOT `manipulation`: manipulation still allows
+   panning, so a firm finger that rolled past the touch slop became a pan,
+   Chromium sent pointercancel, and the hold died (dad 9/27, found on the
+   clothing tile first; era-core/dwell.js:58's 7/28 lesson). The strip never
+   scrolls, so `none` costs nothing here. The user-select/callout pair is the
+   rest of the Windows/WebKit long-press furniture board-lock.js's
+   preventDefault cannot reach. ---- */
+.stripbtn.lock{touch-action:none; -webkit-user-select:none; user-select:none;
           -webkit-touch-callout:none; position:relative; overflow:hidden;
           min-width:var(--bar-inner, 40px)}
 .stripbtn.lock::after{content:""; position:absolute; inset:0; pointer-events:none;
@@ -416,8 +420,13 @@ body{background:var(--paper); color:var(--ink);
    swallow the pointerup that would cancel the hold.
    touch-action/user-select/callout are the Windows+WebKit long-press furniture
    (board-edit.js deliberately never preventDefaults the pointerdown — a tap on
-   a tile is her board — so the CSS side has to refuse it). */
-.board-area .tile[data-items]{touch-action:manipulation; -webkit-user-select:none; user-select:none;
+   a tile is her board — so the CSS side has to refuse it). touch-action is
+   `none`, NOT `manipulation`: manipulation still allows panning, so a firm
+   finger that rolled past the touch slop became a pan, Chromium sent
+   pointercancel, and the ring stopped with no sheet (dad 9/27). It is the lesson
+   era-core/dwell.js:58 learned on 7/28 and put on .dwell — which this rule,
+   being more specific, had been overriding on exactly these tiles. */
+.board-area .tile[data-items]{touch-action:none; -webkit-user-select:none; user-select:none;
   -webkit-touch-callout:none}
 .board-area .tile.holding::before{content:""; position:absolute; inset:0; z-index:2;
   pointer-events:none; border-radius:inherit; opacity:1;

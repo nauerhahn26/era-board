@@ -165,13 +165,15 @@ async function open(browser, dial) {
 // A real finger on a real element, held for `ms`. CDP, not page.touchscreen:
 // the latter only taps. touchStart -> pointerdown{pointerType:"touch"} in the
 // page, which is precisely what board-edit.js filters on.
+// `midway` gets the same CDP session and the finger's start point, so a test
+// can move the finger that is already down.
 async function hold(page, selector, ms, midway) {
   const box = await page.locator(selector).boundingBox();
   const x = box.x + box.width / 2, y = box.y + box.height / 2;
   const cdp = await page.context().newCDPSession(page);
   try {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-    if (midway) { await page.waitForTimeout(Math.min(400, ms)); await midway(); await page.waitForTimeout(Math.max(0, ms - 400)); }
+    if (midway) { await page.waitForTimeout(Math.min(400, ms)); await midway({ cdp, x, y }); await page.waitForTimeout(Math.max(0, ms - 400)); }
     else await page.waitForTimeout(ms);
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   } finally { await cdp.detach().catch(() => {}); }
@@ -274,6 +276,30 @@ test("a 1600ms finger on an outfit tile opens the sheet with BOTH garments", asy
       "the photo is the item's own, by id — the same path the tiles use");
     assert.equal(sheet.cats.length, 11, "every category the hub sent, and not one of the board's own");
     assert.deepEqual(sheet.on, ["top"], "the item's current category is the selected chip");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Dad 9/27: on the Windows touchscreen the ring started, then stopped, on most
+// holds. A firm press rolls; under `touch-action: manipulation` Chromium read
+// the drift as a pan and sent pointercancel, which ends the hold. 30 px, because
+// a 12 px drift stays under Chromium's ~15 px slop and proves nothing.
+test("a finger that drifts 30px during the hold still opens the sheet — a firm press rolls, and rolling is not a pan (dwell.js 7/28)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, outfitEvents, errors } = await open(browser);
+    await hold(page, TILE, 2000, async ({ cdp, x, y }) => {
+      for (const dx of [10, 20, 30]) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + dx, y }] });
+        await page.waitForTimeout(60);
+      }
+    });
+    await page.locator("#editSheet").waitFor({ timeout: 4000 });
+    const s = await boardState(page);
+    assert.equal(s.board, "today", "a drifting hold is still a hold: it never became a pick");
+    assert.equal(s.rows, 2, "and it opened the outfit's sheet, both garments");
+    assert.deepEqual(outfitEvents, [], "no /outfit-event");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
