@@ -97,13 +97,15 @@ async function open(browser, recipe, dial) {
 // the latter only taps. touchStart -> pointerdown{pointerType:"touch"} in the
 // page, which is precisely what board-lock.js filters on. `midway` is called
 // with the finger still down, which is the only moment the fill ring exists.
+// It gets the same CDP session and the finger's start point, so a test can
+// move the finger that is already down.
 async function hold(page, selector, ms, midway) {
   const box = await page.locator(selector).boundingBox();
   const x = box.x + box.width / 2, y = box.y + box.height / 2;
   const cdp = await page.context().newCDPSession(page);
   try {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-    if (midway) { await page.waitForTimeout(Math.min(400, ms)); await midway(); await page.waitForTimeout(Math.max(0, ms - 400)); }
+    if (midway) { await page.waitForTimeout(Math.min(400, ms)); await midway({ cdp, x, y }); await page.waitForTimeout(Math.max(0, ms - 400)); }
     else await page.waitForTimeout(ms);
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   } finally { await cdp.detach().catch(() => {}); }
@@ -173,6 +175,34 @@ test("a 1600ms finger on 🔒 locks the board; the strip stays gaze-proof", asyn
     assert.deepEqual(after.barDwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
     assert.match(after.warn, /^Locked until \d{1,2}:\d{2}/, "the banner names the time: " + after.warn);
     assert.equal(after.warnDwell, false, "the banner is touch-only too");
+    assert.equal(after.mediaAsleep, after.media, "every media tile is inert");
+    assert.equal(after.otherAwake, after.otherTiles, "and nothing else was touched");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Dad 9/27: the clothing tile's twin. A firm press rolls, and rolling is not a
+// pan — under `touch-action: manipulation` Chromium read the drift as one and
+// sent pointercancel, which ends the hold. 30 px, because a 12 px drift stays
+// under Chromium's ~15 px slop and proves nothing.
+test("a finger that drifts 30px during the hold still locks — the tile's twin (dad 9/27)", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser, "songs");
+    assert.equal((await lockState(page)).stored, null, "nothing locked to start with");
+    await hold(page, "#stripLock", 2000, async ({ cdp, x, y }) => {
+      for (const dx of [10, 20, 30]) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + dx, y }] });
+        await page.waitForTimeout(60);
+      }
+    });
+    await page.waitForFunction(() => !!localStorage.getItem("era.lock"), null, { timeout: 4000 });
+    const after = await lockState(page);
+    const stored = JSON.parse(after.stored);
+    assert.ok(stored.until > Date.now() + 40 * 60 * 1000, "45 minutes from now: " + stored.until);
+    assert.equal(after.btnLocked, true, "the button says so");
+    assert.equal(after.btnDwell, false, "and is STILL not a gaze target");
     assert.equal(after.mediaAsleep, after.media, "every media tile is inert");
     assert.equal(after.otherAwake, after.otherTiles, "and nothing else was touched");
     assert.deepEqual(errors, [], "no page errors");
