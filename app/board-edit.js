@@ -4,7 +4,8 @@
 // there be a user override without too many changes to UX — the touch-only long
 // touch could allow modifications." So: a grown-up holds a FINGER on any tile
 // that names clothes for 1.6 s and gets a sheet that can move an item to
-// another category, mark it fancy, or take it off the board. The model filed a
+// another category, mark it fancy, or take it off the board. 9/29 (warmth
+// coherence spec D4): and say how it is cut — Sleeves, Legs, Weight. The model filed a
 // hoodie as a top; this is the one place a human overrules it, and the hub keeps
 // that correction forever (`manual: true`, spec §3.4).
 //
@@ -81,6 +82,42 @@ function footerClearance() {
     if (r.height > 0) top = Math.min(top, r.top);
   }
   return Math.round(window.innerHeight - top) + 6;
+}
+
+// ---- the fit rows (9/29) ---------------------------------------------------
+//
+// Warmth coherence spec 2026-09-29 D4. Dad, on an 81 °F morning: "multiple
+// options that were long sleeve and pants." The deal now reads how a garment
+// is CUT — `coverage` (sleeves), `legs` (a dress or set's), `weight` (how warm
+// a long sleeve or a jacket is) — and the model that reads a photo for those
+// can be wrong exactly as it was about the hoodie, so this sheet overrules it
+// the same way. The values are the hub's words (spec §3), the labels a
+// parent's; the hub stores `mid` and the chip says Medium. There is no
+// "Not sure" chip: `unsure` is the model's answer, never a parent's (§3), so an
+// item that holds it shows nothing selected and sends nothing until a grown-up
+// picks. Which rows a garment gets is decided from what is chosen IN THE SHEET
+// — a top tapped Long grows a Weight row, a top moved to Pants loses its
+// Sleeves — so `show` reads the row's live state, never the item it came from.
+const FIT_FIELDS = [
+  { field: "coverage", label: "Sleeves",
+    opts: [["sleeveless", "Sleeveless"], ["short", "Short"], ["long", "Long"]],
+    show: (r) => r.category === "top" || r.category === "dress" || r.category === "set" },
+  { field: "legs", label: "Legs",
+    opts: [["bare", "Bare"], ["covered", "Covered"]],
+    show: (r) => r.category === "dress" || r.category === "set" },
+  // a long-sleeve top or a jacket, and nothing else (D4): a short sleeve is
+  // one weight in the model's table, and asking would be a question with no
+  // consequence.
+  { field: "weight", label: "Weight",
+    opts: [["light", "Light"], ["mid", "Medium"], ["heavy", "Heavy"]],
+    show: (r) => r.category === "jacket" || (r.category === "top" && r.coverage === "long") },
+];
+// Read defensively: until the hub's itemRef carries these (Phase 3) they are
+// simply absent, and a word the sheet has no chip for (the model's `unsure`,
+// or anything newer than this board) is shown as nothing selected rather than
+// guessed at.
+function fitValue(f, v) {
+  return f.opts.some(([id]) => id === v) ? v : "";
 }
 
 // ---- module state ----------------------------------------------------------
@@ -268,14 +305,18 @@ function enable(on) {
 
 function openSheet(items) {
   if (sheet) return;
-  rows = items.map((it) => ({
-    id: it.id,
-    name: it.name || it.id,
-    category: it.category || "",
-    fancy: it.occasion === "fancy",
-    hidden: !!it.hidden,
-    was: { category: it.category || "", fancy: it.occasion === "fancy", hidden: !!it.hidden },
-  }));
+  rows = items.map((it) => {
+    const row = {
+      id: it.id,
+      name: it.name || it.id,
+      category: it.category || "",
+      fancy: it.occasion === "fancy",
+      hidden: !!it.hidden,
+      was: { category: it.category || "", fancy: it.occasion === "fancy", hidden: !!it.hidden },
+    };
+    for (const f of FIT_FIELDS) row[f.field] = row.was[f.field] = fitValue(f, it[f.field]);
+    return row;
+  });
 
   sheet = mk("div", null);
   sheet.id = "editSheet";
@@ -310,10 +351,17 @@ function openSheet(items) {
         row.category = c.id;
         for (const other of chips.querySelectorAll(".edit-chip"))
           other.classList.toggle("on", other.dataset.cat === row.category);
+        drawFit(row, fit);           // a new category may take or grow a fit row
       });
       chips.append(b);
     }
     if (categories.length) main.append(chips);
+
+    // Sleeves · Legs · Weight (9/29) — between the category and the toggles,
+    // because which of them show is the category's business.
+    const fit = mk("div", "edit-fit");
+    drawFit(row, fit);
+    main.append(fit);
 
     const toggles = mk("div", "edit-toggles");
     const fancy = mk("button", "edit-fancy", "✨ Fancy");
@@ -356,6 +404,37 @@ function openSheet(items) {
   window.addEventListener("resize", onResize);
 }
 
+// The fit rows for one item, drawn from scratch every time the category or
+// the sleeves move. A row that does not apply is NOT IN THE DOM — not hidden:
+// every control on this sheet is a 56 px finger target (the suite measures
+// each button), and a display:none button is a 0 px one. Chips are plain
+// buttons like the category chips, with their own class so a category is
+// never counted among them.
+function drawFit(row, host) {
+  host.textContent = "";
+  for (const f of FIT_FIELDS) {
+    if (!f.show(row)) continue;
+    const line = mk("div", "edit-field");
+    line.dataset.field = f.field;
+    line.append(mk("span", "edit-label", f.label));
+    for (const [id, label] of f.opts) {
+      const b = mk("button", "edit-opt", label);
+      b.dataset.value = id;
+      if (row[f.field] === id) b.classList.add("on");
+      b.addEventListener("click", () => {
+        row[f.field] = id;
+        // only Sleeves can change which rows show (Long grows Weight); the
+        // others just move their own highlight
+        if (f.field === "coverage") { drawFit(row, host); return; }
+        for (const other of line.querySelectorAll(".edit-opt"))
+          other.classList.toggle("on", other.dataset.value === id);
+      });
+      line.append(b);
+    }
+    host.append(line);
+  }
+}
+
 function onResize() {
   if (sheet) sheet.style.bottom = footerClearance() + "px";
 }
@@ -378,6 +457,14 @@ function changesOf(row) {
   if (row.category && row.category !== row.was.category) { body.category = row.category; any = true; }
   if (row.fancy !== row.was.fancy) { body.occasion = row.fancy ? "fancy" : "everyday"; any = true; }
   if (row.hidden !== row.was.hidden) { body.hidden = row.hidden; any = true; }
+  // A fit field travels only if its row is ON SCREEN at Done and a grown-up
+  // moved it (9/29). A top made Long and Heavy and then moved to Pants shows
+  // no Sleeves or Weight any more, so what they held is not this garment's
+  // business; and an empty value (nothing chosen) is never sent.
+  for (const f of FIT_FIELDS) {
+    const v = row[f.field];
+    if (f.show(row) && v && v !== row.was[f.field]) { body[f.field] = v; any = true; }
+  }
   return any ? body : null;
 }
 

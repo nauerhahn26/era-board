@@ -453,10 +453,19 @@ body{background:var(--paper); color:var(--ink);
 .edit-name{font-size:22px; font-weight:700; overflow-wrap:anywhere}
 .edit-chips, .edit-toggles{display:flex; flex-wrap:wrap; gap:10px}
 /* chips as pills, and never under the 56px a finger needs */
-.edit-chip, .edit-fancy, .edit-hide, .edit-btn{min-height:56px; border:3px solid var(--line, #B9C7CC);
+.edit-chip, .edit-opt, .edit-fancy, .edit-hide, .edit-btn{min-height:56px; border:3px solid var(--line, #B9C7CC);
   border-radius:28px; padding:0 22px; cursor:pointer; font-family:var(--font);
   font-size:20px; font-weight:700; background:#FFFFFF; color:var(--ink, #17272E)}
-.edit-chip.on{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58); color:#FFFFFF}
+.edit-chip.on, .edit-opt.on{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58); color:#FFFFFF}
+/* Sleeves · Legs · Weight (9/29, warmth coherence spec D4): one line per
+   field, a label then its chips — the category chips' pill and colour, so a
+   parent reads them as the same kind of choice. The label is text, not a
+   target; the lines exist only when they apply (board-edit.js drawFit), so no
+   [hidden] rule is needed. */
+.edit-fit{display:flex; flex-direction:column; gap:10px}
+.edit-fit:empty{display:none}
+.edit-field{display:flex; flex-wrap:wrap; align-items:center; gap:10px}
+.edit-label{font-size:20px; font-weight:700; min-width:96px; color:var(--ink, #17272E)}
 .edit-fancy.on{background:#8A5A18; border-color:#8A5A18; color:#FFFFFF}
 .edit-hide.on{background:#6B2F2F; border-color:#6B2F2F; color:#FFFFFF}
 .edit-msg{display:none; font-size:20px; line-height:1.3; color:#6B2F2F; font-weight:700}
