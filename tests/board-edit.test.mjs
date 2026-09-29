@@ -54,6 +54,18 @@ const JPG = Buffer.from(
 // board never carries one of its own to drift.
 const HOODIE = { id: "item_h", name: "Grey hoodie", category: "top", occasion: "everyday" };
 const LEGGINGS = { id: "item_b", name: "Pink leggings", category: "pants", occasion: "everyday" };
+// 9/29 (warmth coherence spec D4): the hub's itemRef grows coverage / legs /
+// weight once refit or a parent has described a garment. Each one here is a
+// shape the sheet must read: a long-sleeve top the model weighed, a dress with
+// both fields, a jacket, and a top whose weight the model could only call
+// `unsure` — which is not an answer a parent ever sees selected, or sends.
+const LONGTOP = { id: "item_l", name: "Striped long sleeve", category: "top", occasion: "everyday",
+                  coverage: "long", weight: "mid" };
+const DRESS = { id: "item_d", name: "Yellow sundress", category: "dress", occasion: "everyday",
+                coverage: "short", legs: "bare" };
+const JACKET = { id: "item_j", name: "Puffy coat", category: "jacket", occasion: "everyday", weight: "heavy" };
+const UNSURE = { id: "item_u", name: "Blue sweatshirt", category: "top", occasion: "everyday",
+                 coverage: "long", weight: "unsure" };
 
 const FIXTURE = {
   locale: "en-US", root: "today", home_label: "Clothing",
@@ -93,6 +105,23 @@ const FIXTURE = {
         // ONE garment: the hoodie the model mis-filed as a top
         { label: "Grey hoodie", say: "Grey hoodie", type: "clothing",
           image: "wardrobe-items/item_h.jpg", row: 1, col: 2, items: [HOODIE] },
+      ] },
+    // the fit rows' page (9/29): one garment per tile, so each opens alone
+    { id: "cat_fit", name: "Fit", rows: 3, columns: 4,
+      buttons: [
+        { label: "Back", type: "back", glyph: "←", load: "today", row: 1, col: 1 },
+        { label: "Striped long sleeve", say: "Striped long sleeve", type: "clothing",
+          image: "wardrobe-items/item_l.jpg", row: 1, col: 2, items: [LONGTOP] },
+        { label: "Yellow sundress", say: "Yellow sundress", type: "clothing",
+          image: "wardrobe-items/item_d.jpg", row: 1, col: 3, items: [DRESS] },
+        { label: "Puffy coat", say: "Puffy coat", type: "clothing",
+          image: "wardrobe-items/item_j.jpg", row: 1, col: 4, items: [JACKET] },
+        { label: "Blue sweatshirt", say: "Blue sweatshirt", type: "clothing",
+          image: "wardrobe-items/item_u.jpg", row: 2, col: 1, items: [UNSURE] },
+        { label: "Grey hoodie", say: "Grey hoodie", type: "clothing",
+          image: "wardrobe-items/item_h.jpg", row: 2, col: 4, items: [HOODIE] },
+        { label: "Pink leggings", say: "Pink leggings", type: "clothing",
+          image: "wardrobe-items/item_b.jpg", row: 3, col: 2, items: [LEGGINGS] },
       ] },
     { id: "acc", name: "Accessories", rows: 3, columns: 4,
       buttons: [{ label: "Back", type: "back", glyph: "←", load: "today", row: 1, col: 1 }] },
@@ -486,6 +515,212 @@ test("the sheet sits ABOVE the wardrobe footer instead of painting on it", async
       "and it measured rather than guessed: bottom " + m.inline + " for a " +
       Math.round(foot.height) + "px footer");
     assert.equal(m.footBottom, foot.bottom, "the standing footer did not move for it");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// ------------------------------------------------ Sleeves · Legs · Weight (9/29)
+//
+// Warmth coherence spec 2026-09-29 D4: the deal now reads `coverage` (sleeves),
+// `legs` (a dress or set's bare or covered legs) and `weight` (how warm a long
+// sleeve or a jacket is), and the model can be wrong about any of them — so the
+// same sheet overrules it. Sleeves on tops, dresses and sets; Legs on dresses
+// and sets; Weight only on a long-sleeve top or a jacket. The rows follow what
+// is chosen IN the sheet (a top made Long grows a Weight row; a top moved to
+// Pants loses its Sleeves), a row that does not apply is not in the DOM at all
+// (every control on the sheet is a 56 px target — a hidden one is a 0 px one),
+// and Done sends a fit field only when a grown-up moved it.
+
+async function openFit(page, id) {
+  await page.evaluate(() => window.Board.show("cat_fit"));
+  await page.locator('.board-area .tile[data-items="' + id + '"]').waitFor({ timeout: 4000 });
+  assert.equal(await page.evaluate((i) => window.__editTest.open([i]), id), true, "the sheet opened for " + id);
+  await page.locator("#editSheet").waitFor({ timeout: 4000 });
+}
+
+// what the sheet shows for one row: the fit rows present, in order, and the
+// value each has selected (null = nothing selected)
+const fitOf = (page, id) => page.evaluate((i) => {
+  const row = document.querySelector('#editSheet .edit-row[data-item-id="' + i + '"]');
+  const out = {};
+  for (const f of row.querySelectorAll(".edit-field")) {
+    const on = [...f.querySelectorAll(".edit-opt.on")].map((b) => b.dataset.value);
+    out[f.dataset.field] = {
+      label: f.querySelector(".edit-label").textContent,
+      opts: [...f.querySelectorAll(".edit-opt")].map((b) => b.dataset.value + ":" + b.textContent),
+      on: on.length ? on : null,
+    };
+  }
+  return out;
+}, id);
+
+const opt = (page, id, field, value) => page.locator('#editSheet .edit-row[data-item-id="' + id +
+  '"] .edit-field[data-field="' + field + '"] .edit-opt[data-value="' + value + '"]');
+
+test("fit rows: Sleeves on tops/dresses/sets, Legs on dresses/sets, Weight on long sleeves and jackets — each showing the item's own value", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser);
+
+    await openFit(page, "item_l");
+    assert.deepEqual(await fitOf(page, "item_l"), {
+      coverage: { label: "Sleeves", opts: ["sleeveless:Sleeveless", "short:Short", "long:Long"], on: ["long"] },
+      weight: { label: "Weight", opts: ["light:Light", "mid:Medium", "heavy:Heavy"], on: ["mid"] },
+    }, "a long-sleeve top: Sleeves and Weight, its own values selected; the hub's `mid` reads Medium");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_d");
+    assert.deepEqual(await fitOf(page, "item_d"), {
+      coverage: { label: "Sleeves", opts: ["sleeveless:Sleeveless", "short:Short", "long:Long"], on: ["short"] },
+      legs: { label: "Legs", opts: ["bare:Bare", "covered:Covered"], on: ["bare"] },
+    }, "a short-sleeve dress: Sleeves and Legs, no Weight");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_j");
+    assert.deepEqual(await fitOf(page, "item_j"), {
+      weight: { label: "Weight", opts: ["light:Light", "mid:Medium", "heavy:Heavy"], on: ["heavy"] },
+    }, "a jacket: Weight only");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_u");
+    const u = await fitOf(page, "item_u");
+    assert.equal(u.weight.on, null, "the model's `unsure` is not a choice a parent sees selected");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_h");
+    assert.deepEqual(Object.keys(await fitOf(page, "item_h")), ["coverage"],
+      "a top nobody has described yet: Sleeves with nothing selected, and no Weight until it is Long");
+    assert.equal((await fitOf(page, "item_h")).coverage.on, null, "…nothing selected");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_b");
+    assert.deepEqual(await fitOf(page, "item_b"), {}, "pants: no fit rows at all");
+
+    // the sheet's law holds for the new rows too: plain grown-up buttons, no
+    // gaze target, every one a finger's size
+    const law = await page.evaluate(() => {
+      const el = document.getElementById("editSheet");
+      return {
+        dwell: el.querySelectorAll(".dwell, [data-dwell-ms], [data-dwell-disabled]").length,
+        small: [...el.querySelectorAll("button")].filter((b) => b.getBoundingClientRect().height < 56).length,
+      };
+    });
+    assert.equal(law.dwell, 0, "no gaze target in the sheet");
+    assert.equal(law.small, 0, "every control is at least 56px tall");
+    await page.evaluate(() => window.__editTest.close());
+
+    await openFit(page, "item_l");
+    const law2 = await page.evaluate(() => {
+      const el = document.getElementById("editSheet");
+      const opts = [...el.querySelectorAll(".edit-opt")];
+      return {
+        n: opts.length,
+        dwell: el.querySelectorAll(".dwell, [data-dwell-ms], [data-dwell-disabled]").length,
+        small: opts.filter((b) => b.getBoundingClientRect().height < 56).length,
+      };
+    });
+    assert.equal(law2.n, 6, "three Sleeves chips and three Weight chips");
+    assert.equal(law2.dwell, 0, "none of them a gaze target");
+    assert.equal(law2.small, 0, "every chip at least 56px tall");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("the Weight row follows the Sleeves chip, and the fit rows follow the category chip, in this sheet", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, posts, errors } = await open(browser);
+    await openFit(page, "item_h");
+    await opt(page, "item_h", "coverage", "long").click();
+    let f = await fitOf(page, "item_h");
+    assert.deepEqual(f.coverage.on, ["long"], "Long is selected");
+    assert.ok(f.weight, "…and a long sleeve grows a Weight row");
+    assert.equal(f.weight.on, null, "with nothing chosen for it yet");
+
+    await opt(page, "item_h", "coverage", "short").click();
+    f = await fitOf(page, "item_h");
+    assert.deepEqual(Object.keys(f), ["coverage"], "Short takes the Weight row away again");
+
+    // moved to Dress: Sleeves stays (a dress has sleeves), Legs appears
+    await page.locator('#editSheet .edit-row[data-item-id="item_h"] .edit-chip[data-cat="dress"]').click();
+    f = await fitOf(page, "item_h");
+    assert.deepEqual(Object.keys(f), ["coverage", "legs"], "a dress: Sleeves and Legs");
+    assert.deepEqual(f.coverage.on, ["short"], "the Sleeves choice survived the move");
+
+    // moved to Jacket: Weight alone
+    await page.locator('#editSheet .edit-row[data-item-id="item_h"] .edit-chip[data-cat="jacket"]').click();
+    assert.deepEqual(Object.keys(await fitOf(page, "item_h")), ["weight"], "a jacket: Weight alone");
+
+    // back to Top, Long, Heavy — and Done sends all three moved fields in ONE body
+    await page.locator('#editSheet .edit-row[data-item-id="item_h"] .edit-chip[data-cat="top"]').click();
+    await opt(page, "item_h", "coverage", "long").click();
+    await opt(page, "item_h", "weight", "heavy").click();
+    await page.locator("#editDone").click();
+    await page.waitForFunction(() => /Updating/.test(document.getElementById("editSheet").textContent),
+                               null, { timeout: 4000 });
+    assert.deepEqual(posts, [{ id: "item_h", coverage: "long", weight: "heavy" }],
+      "category is back where it started, so only the two fit fields travel");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("Done sends a fit field only when a grown-up MOVED it — beside category / occasion / hidden, same body, same route", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, posts, errors } = await open(browser);
+
+    // the dress: re-tapping its own Short is not a change; Covered and Fancy are
+    await openFit(page, "item_d");
+    await opt(page, "item_d", "coverage", "short").click();
+    await opt(page, "item_d", "legs", "covered").click();
+    await page.locator('#editSheet .edit-row[data-item-id="item_d"] .edit-fancy').click();
+    await page.locator("#editDone").click();
+    await page.waitForFunction(() => /Updating/.test(document.getElementById("editSheet").textContent),
+                               null, { timeout: 4000 });
+    assert.deepEqual(posts, [{ id: "item_d", occasion: "fancy", legs: "covered" }],
+      "one POST: the moved legs beside the moved occasion, the untouched sleeves left out");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+
+    // a fresh page for the next two (the first one is reloading)
+    const b = await open(browser);
+    await openFit(b.page, "item_j");
+    await opt(b.page, "item_j", "weight", "light").click();
+    await b.page.locator("#editDone").click();
+    await b.page.waitForFunction(() => /Updating/.test(document.getElementById("editSheet").textContent),
+                                 null, { timeout: 4000 });
+    assert.deepEqual(b.posts, [{ id: "item_j", weight: "light" }], "a jacket made Light: weight alone");
+    await b.ctx.close();
+
+    // the long sleeve moved to Pants: its Sleeves and Weight rows are gone, so
+    // whatever they held is not this garment's business any more
+    const c = await open(browser);
+    await openFit(c.page, "item_l");
+    await opt(c.page, "item_l", "weight", "heavy").click();
+    await c.page.locator('#editSheet .edit-row[data-item-id="item_l"] .edit-chip[data-cat="pants"]').click();
+    await c.page.locator("#editDone").click();
+    await c.page.waitForFunction(() => /Updating/.test(document.getElementById("editSheet").textContent),
+                                 null, { timeout: 4000 });
+    assert.deepEqual(c.posts, [{ id: "item_l", category: "pants" }],
+      "a row that no longer shows sends nothing");
+    assert.deepEqual([...c.errors, ...b.errors], [], "no page errors");
+    await c.ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("the model's `unsure` weight, untouched, is never sent — a parent never posts unsure", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, posts, errors } = await open(browser);
+    await openFit(page, "item_u");
+    await page.locator('#editSheet .edit-row[data-item-id="item_u"] .edit-hide').click();
+    await page.locator("#editDone").click();
+    await page.waitForFunction(() => /Updating/.test(document.getElementById("editSheet").textContent),
+                               null, { timeout: 4000 });
+    assert.deepEqual(posts, [{ id: "item_u", hidden: true }], "hidden alone; no weight, no coverage");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
