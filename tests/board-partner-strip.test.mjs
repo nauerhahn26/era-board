@@ -1,0 +1,577 @@
+// board-partner-strip.test.mjs — the grown-up's strip in the board header (T4.4).
+//
+// Dad's 9/4 amendment to the board design rules: grown-up controls MAY live in
+// the header, but only as a touch/click strip — the same class as the
+// #wardrobeNote footer. So this suite pins the amendment's whole price:
+//   * the strip exists on ?recipe=songs and ?recipe=movies and NOWHERE else
+//     (the outfit board's bar still carries the doors and nothing else, which
+//     is what board-input / board-pixel / board-wardrobe-note keep asserting);
+//   * the two DOORS stay the message bar's only dwell targets — 🚪 leave and,
+//     since dad's 9/17 amendment, 💬 pause-to-talk (board-talk-door.test.mjs
+//     owns the 💬 itself) — and nothing in the strip carries .dwell or a
+//     data-dwell-* attribute: a gaze parked on it for twice the longest hold
+//     must activate nothing;
+//   * the bar is still the <=9% slab (dad 9/2 "the header is still too big");
+//   * and the sheet the strip opens SHIELDS the board — a gaze parked on a tile
+//     beneath the backdrop fires nothing, because a backdrop alone does not
+//     stop dwell.js (review 9/5).
+// Then the feature itself: "+ Add" opens a pointer-only sheet that posts to the
+// hub's /music/add ({url} for a pasted link, {query} for a typed name) and puts
+// the hub's own answer — the 202, or "the pack is missing" — on screen in the
+// words a parent can act on.
+//
+// Hermetic: every hub route the board touches is stubbed, so the test never
+// downloads a song, never runs yt-dlp and never reaches YouTube; the page
+// itself is served by the gate's hub (port re-pointed by era-gate.sh), so this
+// suite holds no port of its own.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chromium } from "playwright";
+
+const BASE = "http://localhost:8377/board/";
+const QUIET_CLOTHING = { building: false, ingesting: null, photos: 3, cataloged: 3, aiConfigured: true };
+const QUIET_CONTENT = { mode: "local", local: true, skipped: null, building: false, job: null,
+                        queued: [], jobs: [], lastScan: null };
+const IDLE_ADD = { pack: { id: "media-tools", installed: true }, folder: true, running: null, last: null };
+
+// One board page with every hub route stubbed. `dial` is what the test turns:
+//   dial.add     -> the answer /music/add gives (status + body)
+//   dial.addStat -> what /music/add/status reports while the sheet waits
+// `posts` collects what the sheet actually sent.
+async function open(browser, recipe, dial) {
+  const d = Object.assign({ add: { status: 202, body: { started: true } }, addStat: () => IDLE_ADD }, dial || {});
+  const posts = [];
+  const installs = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+  await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+  await ctx.route("**/outfit-event", (r) => r.fulfill({ status: 204, body: "" }));
+  await ctx.route("**/music-event", (r) => r.fulfill({ status: 204, body: "" }));
+  await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+  await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+  await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+  await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+  // the status door first: "**/music/add" must not swallow "/music/add/status"
+  await ctx.route("**/music/add/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(d.addStat()) }));
+  await ctx.route("**/music/add", (r) => {
+    posts.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
+    r.fulfill({ status: d.add.status, contentType: "application/json", body: JSON.stringify(d.add.body) });
+  });
+  // the pack door of last resort (hub review 9/5): media-tools belongs to no
+  // app, so this is the only way the sheet's offer can ever be real.
+  await ctx.route("**/packs/install", (r) => {
+    installs.push({ body: r.request().postDataJSON(), type: r.request().headers()["content-type"] || "" });
+    r.fulfill({ status: 202, contentType: "application/json", body: '{"installing":true}' });
+  });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.addInitScript(() => {
+    try { localStorage.clear(); } catch {}
+    window.__activateCount = 0;
+    document.addEventListener("dwell:activate", () => { window.__activateCount++; }, true);
+    // `reload` is board-partner.js's own seam (bug 3): a landed add refreshes
+    // the board as the sheet closes, and a suite has to be able to count that
+    // without the page it is asserting on going away underneath it.
+    window.__reloads = 0;
+    window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                           pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300,
+                           addPollMs: 120, reload: () => { window.__reloads++; } };
+  });
+  await page.goto(BASE + (recipe ? "?recipe=" + recipe : ""), { waitUntil: "load" });
+  await page.waitForFunction(() => window.Board && typeof window.Board.show === "function", null, { timeout: 8000 });
+  return { ctx, page, posts, installs, errors, dial: d };
+}
+
+// what the bar is made of, from the page's own point of view
+const barShape = (page) => page.evaluate(() => {
+  const bar = document.querySelector(".msgbar");
+  const strip = document.getElementById("partnerStrip");
+  return {
+    kids: [...bar.children].map((el) => el.id || String(el.className)),
+    hPct: +((bar.getBoundingClientRect().height / innerHeight) * 100).toFixed(1),
+    barDwell: [...bar.querySelectorAll(".dwell")].map((el) => el.id),
+    strip: !!strip,
+    stripInBar: !!strip && strip.parentElement === bar,
+    stripDwell: !!strip && (strip.classList.contains("dwell") || strip.querySelectorAll(".dwell").length > 0),
+    stripDwellAttrs: !strip ? [] : [strip, ...strip.querySelectorAll("*")]
+      .flatMap((el) => [...el.attributes].map((a) => a.name))
+      .filter((n) => n.startsWith("data-dwell")),
+    labels: !strip ? [] : [...strip.querySelectorAll("button")].map((b) => b.textContent.trim()),
+  };
+});
+
+test("songs board: the strip rides in the bar, and the doors keep the bar's only dwell", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser, "songs");
+    const bar = await barShape(page);
+    assert.deepEqual(bar.kids, ["barDoor", "barTalk", "partnerStrip"], "the bar carries the two doors and the one partner strip");
+    assert.ok(bar.stripInBar, "the strip is a child of the message bar");
+    assert.deepEqual(bar.barDwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
+    assert.equal(bar.stripDwell, false, "nothing in the strip is a gaze target");
+    assert.deepEqual(bar.stripDwellAttrs, [], "nothing in the strip carries a dwell attribute");
+    // 9/14: 🔒 joined them (board-lock.test.mjs owns what it DOES). What this
+    // suite keeps asserting about it is what it is NOT — no .dwell, no
+    // data-dwell-* — two lines up.
+    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange", "🔒"], "the strip's three grown-up doors");
+    assert.ok(bar.hPct <= 9.1, `bar is still a slim strip (was ${bar.hPct}% of the viewport)`);
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("a gaze parked on the strip activates nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page } = await open(browser, "songs");
+    // ERAgaze drives the real cursor, so a parked gaze IS a parked pointer.
+    const box = await page.locator("#stripAdd").boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(2600);   // > the longest hold on the board (the 2 x dwell doors)
+    assert.equal(await page.evaluate(() => window.__activateCount), 0, "no dwell:activate ever fires on the strip");
+    assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the pointer");
+    assert.equal(await page.locator("#partnerSheet").count(), 0, "and the sheet never opened itself");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("movies board gets the strip; the outfit board's bar still carries the doors alone", async () => {
+  const browser = await chromium.launch();
+  try {
+    const movies = await open(browser, "movies");
+    const mBar = await barShape(movies.page);
+    assert.deepEqual(mBar.kids, ["barDoor", "barTalk", "partnerStrip"], "movies board: two doors + strip");
+    assert.deepEqual(mBar.barDwell, ["barDoor", "barTalk"], "movies board: the two doors are still the bar's only dwell targets");
+    await movies.ctx.close();
+
+    const today = await open(browser, "");
+    const tBar = await barShape(today.page);
+    assert.deepEqual(tBar.kids, ["barDoor", "barTalk"], "her outfit board is untouched: the two doors and nothing else");
+    assert.equal(tBar.strip, false, "no strip on the board she uses alone");
+    await today.ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("+ Add sends a pasted link as a link and says the song is coming", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, posts, errors } = await open(browser, "songs");
+    await page.locator("#stripAdd").click();
+    const sheet = page.locator("#partnerSheet");
+    await sheet.waitFor();
+    assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the sheet is pointer-only too");
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    assert.equal(posts.length, 1, "one POST /music/add");
+    assert.deepEqual(posts[0].body, { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }, "a link goes as {url}");
+    assert.ok(posts[0].type.startsWith("application/json"), "JSON, so the hub's own-door check lets it through");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("a typed name goes as a name, and the landed song is reported", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD, running: { title: "twinkle twinkle", phase: "downloading it" } };
+    const { ctx, page, posts } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "  twinkle twinkle  ");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /downloading it/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    assert.deepEqual(posts[0].body, { query: "twinkle twinkle" }, "a name goes as {query}, trimmed");
+    stat = { ...IDLE_ADD, running: null, last: { ok: true, id: "twinkle-twinkle", title: "Twinkle Twinkle", rank: 9, error: "", when: "now" } };
+    await page.waitForFunction(() => /Twinkle Twinkle is on the board/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Bug 3 (VM QA 9/5): the sheet said "Moana is on the board." and the grid
+// behind it stayed black — forty seconds later, still black; only F5 showed the
+// tile. board.js's watcher is right to be slow (it waits for a changed ETag AND
+// a minute of idle, so a rebuilt board never yanks the child mid-tap), but a
+// grown-up's OWN add is a different event: they are standing there looking at
+// the board. So a landed add reloads — as the sheet CLOSES, because reloading
+// under an open sheet would take it out of the hand still holding it.
+test("a landed song refreshes the board — on close, and not one moment before", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: true, when: "now" } };
+    await page.waitForFunction(() => /Moana is on the board/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.match(await page.locator("#sheetSay").textContent(), /Close this and it is there/,
+                 "and the sheet says where the tile will be");
+    assert.equal(await page.evaluate(() => window.__reloads), 0,
+                 "nothing reloads while the grown-up still has the sheet open");
+    assert.equal(await page.locator("#partnerSheet").isVisible(), true, "…which is still there");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 1,
+                 "closing it asks for the board again, so the tile is there when they look");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("a song this device's shelf has not taken yet says so, and reloads nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    // the song is in the family's Drive folder, but the mirror has not carried
+    // it to this device's shelf: there is no tile to reload for, and the sheet
+    // has always said so honestly.
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: false, when: "now" } };
+    await page.waitForFunction(() => /catch up in a few minutes/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 0,
+                 "no reload: it would draw the same board over the same board");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The sheet's own words — "It will be on the board in a minute." — invite the
+// parent to close it and go and look. The first fix for bug 3 armed the reload
+// only while the sheet was still up to SEE the song land, so a Close before
+// the download finished threw the watch away with the sheet: the song landed
+// forty seconds later onto a board nobody refreshed, the exact VM QA 9/5
+// picture again, and a hand on the mouse kept board.js's idle gate from ever
+// catching up (review 9/5). An add outlives its sheet.
+test("a song that lands after the sheet was closed still refreshes the board", async () => {
+  const browser = await chromium.launch();
+  try {
+    let stat = { ...IDLE_ADD, running: { title: "Moana", phase: "downloading it" } };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=moana1");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /downloading it/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    // Close while the hub is still downloading: nothing has landed, nothing reloads
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    await page.waitForTimeout(400);   // a few status ticks with no sheet to report to
+    assert.equal(await page.evaluate(() => window.__reloads), 0, "still downloading: nothing to show yet");
+    assert.ok((await page.locator(".board-area .tile.dwell").count()) > 0, "and the board is hers again meanwhile");
+    // …then it lands on this device, with the parent already looking at the board
+    stat = { ...IDLE_ADD, last: { ok: true, id: "moana", title: "Moana", rank: 7, error: "",
+                                  mirrored: true, when: "now" } };
+    await page.waitForFunction(() => window.__reloads === 1, null, { timeout: 4000 });
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => window.__reloads), 1, "one refresh for one landed song, and no more");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Bug 5's other half. The hub keeps yt-dlp's line for whoever is fixing it
+// (`last.error`) and writes the family's sentence beside it (`last.message`);
+// this sheet shows the second one and never the first. On the VM a parent got
+// "Our Era Comms could not add that song. ERROR: [youtube] XqZsoesa55w: Sign in to
+// confirm you're not a bot. Use --cookies-from-browser or --cookies for the
+// authentication. See https://…" — truncated mid-word.
+test("a failed add shows the hub's sentence, never yt-dlp's, and reloads nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const plain = "YouTube would not let Our Era Comms fetch that one from here. Try another link, or add the song from an MP3 in the family's music folder.";
+    let stat = { ...IDLE_ADD };
+    const { ctx, page, errors } = await open(browser, "songs", { addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=XqZsoesa55w");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    stat = { ...IDLE_ADD, last: { ok: false, id: null, title: "", when: "now", message: plain,
+                                  error: "could not look that up: ERROR: [youtube] XqZsoesa55w: Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-t" } };
+    await page.waitForFunction((want) => document.getElementById("sheetSay").textContent.includes(want),
+                               "YouTube would not let", { timeout: 4000 });
+    const said = await page.locator("#sheetSay").textContent();
+    assert.equal(said, plain, "the hub's own sentence, whole and alone");
+    assert.doesNotMatch(said, /ERROR:|http|--|cookies/, "nothing from yt-dlp's mouth reaches the family");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__reloads), 0, "and a failure reloads nothing");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The amendment proved the STRIP is gaze-unreachable and then opened a
+// full-screen overlay that was gaze-TRANSPARENT: era-core/dwell.js's
+// targetAt() walks the whole elementsFromPoint stack for the first
+// .dwell:not([data-dwell-disabled]), so a backdrop with no .dwell is simply
+// stepped over. While a grown-up typed into the sheet, a parked gaze could
+// still open a song behind it (review 9/5). Arrange mode already knew the fix.
+test("the sheet shields the board: a gaze parked on a tile beneath it fires nothing", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, errors } = await open(browser, "songs");
+    const tile = page.locator(".board-area .tile.dwell").first();
+    await tile.waitFor({ timeout: 8000 });
+    const box = await tile.boundingBox();
+    const before = await page.evaluate(() => window.Board.session.currentId);
+
+    await page.locator("#stripAdd").click();
+    await page.locator("#partnerSheet").waitFor();
+    const frozen = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      doorDwell: !!document.querySelector(".bardoor.dwell"),
+    }));
+    assert.equal(frozen.dwellTiles, 0, "with the sheet up, not one tile is a gaze target");
+    assert.equal(frozen.disabled, frozen.tiles, "every tile says so in the attribute dwell.js reads");
+    assert.equal(frozen.doorDwell, true, "the way out of the board is never taken away");
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(2600);   // > the longest hold on the board (the 2 x dwell doors)
+    assert.equal(await page.evaluate(() => window.__activateCount), 0,
+                 "a gaze parked under the sheet never fires the tile beneath it");
+    assert.equal(await page.locator(".dwell-active").count(), 0, "no dwell fill starts under the sheet");
+    assert.equal(await page.evaluate(() => window.Board.session.currentId), before,
+                 "and the board is exactly where the grown-up left it");
+
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    const back = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+    }));
+    assert.ok(back.dwellTiles > 0, "closing the sheet gives her the board back");
+    assert.equal(back.disabled, 0, "with nothing left switched off");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("no pack, no download attempt — the hub's plain words land in the sheet", async () => {
+  const browser = await chromium.launch();
+  try {
+    const missing = { error: "pack-missing", pack: "media-tools",
+                      message: "Adding songs from the web needs a one-time download of about 18 MB. Install it and try again." };
+    const { ctx, page } = await open(browser, "songs", { add: { status: 409, body: missing } });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://example.com/song");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction((want) => document.getElementById("sheetSay").textContent.includes(want),
+                              missing.message, { timeout: 4000 });
+    // and the sheet stays open so the parent can act on it
+    assert.equal(await page.locator("#partnerSheet").isVisible(), true);
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// "Install it and try again" has to lead somewhere. media-tools is unticked in
+// the installer by default and belongs to no app, so until POST /packs/install
+// existed (hub review 9/5) the sheet was telling a parent to press a button
+// that was nowhere on the machine.
+test("no pack: the sheet offers the install, and the offer really installs it", async () => {
+  const browser = await chromium.launch();
+  try {
+    const missing = { error: "pack-missing", pack: "media-tools",
+                      message: "Adding songs from the web needs a one-time download of about 18 MB. Install it and try again." };
+    let stat = { ...IDLE_ADD, pack: { id: "media-tools", installed: false } };
+    const { ctx, page, installs, errors } =
+      await open(browser, "songs", { add: { status: 409, body: missing }, addStat: () => stat });
+    await page.locator("#stripAdd").click();
+    await page.fill("#sheetInput", "https://example.com/song");
+    await page.locator("#sheetGo").click();
+
+    const install = page.locator("#sheetInstall");
+    await install.waitFor({ timeout: 4000 });
+    assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "the offer is pointer-only too");
+    await install.click();
+    await page.waitForFunction(() => /Our Era Comms is getting/i.test(document.getElementById("sheetSay").textContent),
+                               null, { timeout: 4000 });
+    assert.equal(installs.length, 1, "one POST /packs/install");
+    assert.deepEqual(installs[0].body, { pack: "media-tools" }, "and it names the pack the hub asked for");
+    assert.ok(installs[0].type.startsWith("application/json"), "JSON, so the hub's own-door check lets it through");
+
+    // the hub finishes the download; the sheet is watching the status door it
+    // already polls, and hands the parent back the "Add it" button.
+    stat = { ...IDLE_ADD, pack: { id: "media-tools", installed: true } };
+    await page.waitForFunction(() => !document.getElementById("sheetInstall"), null, { timeout: 6000 });
+    await page.waitForFunction(() => !document.getElementById("sheetGo").disabled, null, { timeout: 4000 });
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The FIRST song. A fresh install has no songs library, so /recipes/songs.json
+// is the honest 404 and the board sits on its splash — which used to say
+// "connect Google Drive…" (true of clothes, not of songs) and carried no strip,
+// because the strip mounted only after a recipe loaded. VM QA 9/5 (T7.6): a
+// family that ticked Music at install could never reach the one control that
+// fills it. So on the songs and movies boards the splash wears the strip too —
+// pointer-only as ever, the two doors still the only dwell targets — and says what
+// to do; a landed song ends the splash through its own retry.
+test("no songs yet: the splash says so and carries + Add, and an add ends the splash", async () => {
+  const browser = await chromium.launch();
+  try {
+    let songs = null;   // null -> 404; a recipe -> the library has a song now
+    const posts = [];
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+    await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/music-event", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+    await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+    await ctx.route("**/recipes/songs.json", (r) => songs
+      ? r.fulfill({ status: 200, contentType: "application/json", headers: { etag: '"one"' }, body: JSON.stringify(songs) })
+      : r.fulfill({ status: 404, body: "not found" }));
+    await ctx.route("**/music/add/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(IDLE_ADD) }));
+    await ctx.route("**/music/add", (r) => {
+      posts.push(r.request().postDataJSON());
+      r.fulfill({ status: 202, contentType: "application/json", body: '{"started":true}' });
+    });
+    await ctx.route("http://127.0.0.1:49155/**", (r) => r.abort());
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => {
+      try { localStorage.clear(); } catch {}
+      window.__activateCount = 0;
+      document.addEventListener("dwell:activate", () => { window.__activateCount++; }, true);
+      window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                             pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300, addPollMs: 120 };
+    });
+    await page.goto(BASE + "?recipe=songs", { waitUntil: "load" });
+    await page.waitForSelector(".splash");
+    await page.waitForFunction(() => /No songs yet/.test(document.querySelector(".splash").textContent), null, { timeout: 4000 });
+    const note = await page.locator(".splash-note").textContent();
+    assert.match(note, /\+ Add/, "the note names the control: " + note);
+    assert.doesNotMatch(note, /Google Drive/, "songs do not come from Drive");
+    const shape = await barShape(page);
+    assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
+    assert.deepEqual(shape.barDwell, ["barDoor", "barTalk"], "the two doors are still the bar's only dwell targets");
+    assert.equal(await page.locator(".dwell").count(), 2, "…and the splash's only ones at all");
+    assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    // "⇅ Arrange" stays off the splash: nothing owns arrange mode until a board
+    // is up, so the tap fell through to the fallback sheet — and its one hint
+    // is written for FILMS ("a new film goes on at the end") on a board that
+    // has no songs (review 9/5). There is nothing to arrange on an empty board.
+    // …and 🔒 (9/14): there is nothing to arrange on an empty board, but a
+    // grown-up in a classroom may well want the lock on before the first song
+    // ever lands — and the lock is the same fact on the board that replaces
+    // this screen.
+    assert.deepEqual(shape.labels, ["+ Add", "🔒"], "the splash offers + Add and the lock, and nothing to arrange");
+    // a grown-up adds the first song from right here
+    await page.locator("#stripAdd").click();
+    await page.locator("#partnerSheet").waitFor();
+    await page.fill("#sheetInput", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await page.locator("#sheetGo").click();
+    await page.waitForFunction(() => /Our Era Comms is fetching/.test(document.getElementById("sheetSay").textContent), null, { timeout: 4000 });
+    assert.deepEqual(posts, [{ url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }]);
+    // …and once the library exists the splash gives way to the board by itself
+    songs = { locale: "en-US", root: "songs", home_label: "Songs",
+              boards: [{ id: "songs", name: "What do I want to hear?", rows: 3, columns: 4,
+                         buttons: [{ label: "One", say: "one", type: "song", song_id: "one", audio: "music/one.wav",
+                                     clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
+    await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
+    assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
+    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange", "🔒"], "…and the real board's strip has its second door back");
+    // The board came up UNDER the sheet the grown-up is still holding (they
+    // waited with it open while the hub downloaded). freezeBoard ran once, on
+    // the splash, so the fresh tiles arrived wearing .dwell — live gaze targets
+    // behind a backdrop dwell.js steps straight over: a parked gaze could start
+    // the song under a sheet the child cannot see past (review 9/5). The mount
+    // has to hand its tiles over already asleep.
+    assert.equal(await page.locator("#partnerSheet").count(), 1, "the sheet is still up over the new board");
+    const under = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      tiles: document.querySelectorAll(".board-area .tile").length,
+      dwell: [...document.querySelectorAll(".dwell")].map((el) => el.id),
+    }));
+    assert.ok(under.tiles > 0, "the song tile was drawn");
+    assert.equal(under.dwellTiles, 0, "a board mounted under an open sheet is asleep like one the sheet found");
+    assert.equal(under.disabled, under.tiles, "every new tile says so in the attribute dwell.js reads");
+    assert.deepEqual(under.dwell, ["barDoor", "barTalk"], "the two doors are the page's only dwell targets while the sheet is up");
+    // …and Close wakes THESE tiles, not the splash's dead nodes
+    await page.locator("#sheetClose").click();
+    await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
+    const back = await page.evaluate(() => ({
+      dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+    }));
+    assert.ok(back.dwellTiles > 0, "closing the sheet gives her the new board");
+    assert.equal(back.disabled, 0, "with nothing left switched off");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// The FIRST movie. The movies hub never 404s: its law is a VALID EMPTY recipe
+// (rest cells only) so the server boots on an all-null catalog. The board
+// drew that faithfully — twelve black squares and not a word — where the
+// songs board says "No songs yet" (VM QA 9/5, T7.6b). An empty shelf is the
+// same news whichever door it came through: the splash, the strip, the hint.
+test("nothing to watch yet: the hub's empty recipe gets the splash and + Add, and a tile ends it", async () => {
+  const browser = await chromium.launch();
+  try {
+    const EMPTY = { locale: "en-US", root: "movies", home_label: "Movies", meta: { pendingCount: 0 },
+                    boards: [{ id: "movies", name: "What do I want to watch?", rows: 3, columns: 4, buttons: [] }] };
+    let movies = EMPTY;
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+    await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    await ctx.route("**/clothing/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CLOTHING) }));
+    await ctx.route("**/content/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUIET_CONTENT) }));
+    await ctx.route("**/recipes/movies.json", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", headers: { etag: movies === EMPTY ? '"none"' : '"one"' }, body: JSON.stringify(movies) }));
+    await ctx.route("**/music/add/status", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(IDLE_ADD) }));
+    await ctx.route("http://127.0.0.1:49155/**", (r) => r.abort());
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => {
+      try { localStorage.clear(); } catch {}
+      window.__boardTest = { statusMs: 60 * 60 * 1000, busyMs: 60 * 60 * 1000,
+                             pollMs: 60 * 60 * 1000, idleMs: 60 * 60 * 1000, retryMs: 300, addPollMs: 120 };
+    });
+    await page.goto(BASE + "?recipe=movies", { waitUntil: "load" });
+    await page.waitForSelector(".splash");
+    await page.waitForFunction(() => /Nothing to watch yet/.test(document.querySelector(".splash").textContent), null, { timeout: 4000 });
+    const note = await page.locator(".splash-note").textContent();
+    assert.match(note, /\+ Add/, "the note names the control: " + note);
+    assert.match(note, /show/, "…and what it adds: " + note);
+    assert.doesNotMatch(note, /Google Drive/, "movies do not come from Drive");
+    assert.equal(await page.locator(".cell").count(), 0, "no grid of black rest cells under the words");
+    const shape = await barShape(page);
+    assert.ok(shape.strip && shape.stripInBar, "the strip rides in the splash's bar");
+    assert.deepEqual(shape.barDwell, ["barDoor", "barTalk"], "the two doors are still the bar's only dwell targets");
+    assert.ok(!shape.stripDwell && shape.stripDwellAttrs.length === 0, "nothing in the strip is a gaze target");
+    assert.deepEqual(shape.labels, ["+ Add", "🔒"], "nothing to arrange on an empty shelf: + Add and the lock");
+    // …and the first tile ends the splash by itself
+    movies = { ...EMPTY, boards: [{ ...EMPTY.boards[0], buttons: [
+      { type: "movie", label: "One", titleId: "one", service: "netflix", url: "https://www.netflix.com/title/1", row: 1, col: 2 }] }] };
+    await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
+    assert.equal(await page.locator(".cell:not(.rest)").count(), 1, "the one tile is drawn");
+    assert.deepEqual(errors, [], "no page errors");
+    await ctx.close();
+  } finally { await browser.close(); }
+});

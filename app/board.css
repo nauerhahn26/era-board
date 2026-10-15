@@ -1,0 +1,476 @@
+/* Ellie Board — Phase 1 renderer styles (post Gate-1 review).
+   Two fixed regions: a reserved message-bar strip on top and the board grid
+   below. Both heights are stable => zero layout shift.
+   WORD INTEGRITY: labels wrap at word boundaries ONLY — no break-word, no
+   hyphens, no clipping. board-render.js sizes each label so it always fits. */
+:root{
+  --ink:#17272E; --paper:#F7F9F8; --line:#D8E0DE;
+  --teal:#0F7C8A; --teal-deep:#0B4E58;
+  --bar-bg:#0B4E58; --bar-ink:#FFFFFF;
+  --font:"Segoe UI", system-ui, sans-serif;
+}
+*{box-sizing:border-box; user-select:none}
+html,body{height:100%; margin:0}
+body{background:var(--paper); color:var(--ink);
+     font-family:var(--font); overflow:hidden}
+
+#app{position:fixed; inset:0; display:flex; flex-direction:column;
+     width:100vw; height:100vh}
+
+/* ---- message bar: NOT HERE ANY MORE (9/17) ----
+   `.msgbar` and `.bardoor` moved verbatim to era-core lib/doorbar.css, which
+   index.html links ahead of this file, so all five of Ellie's apps wear ONE
+   bar. The board's --bar-bg/--bar-ink/--teal-deep/--font tokens above are still
+   what colours it here; doorbar.css falls back to their literals on the
+   literacy pages, which define no bar tokens. The strip's own rules — the 9%
+   height, the load-bearing deeper BOTTOM padding, the door's grey slab — and
+   their reasoning went with them. What stays below is everything that is about
+   the BOARD's bar in particular: the partner strip that rides in it. */
+
+/* ---- partner strip (T4.4, dad's 9/4 amendment) — the grown-up's "+ Add" and
+   "⇅ Arrange" on the songs and movies boards, at the RIGHT end of the bar.
+   Touch/click only: NOT .dwell, never a gaze target (board-partner.js gives it
+   no dwell class and no dwell attributes, and the gates check).
+   Deliberately quiet chrome — smaller and flatter than the doors, because this
+   is a grown-up's control on a board that belongs to her. Height tracks the
+   bar's own content height via --bar-inner, set per render by era-core's
+   doorbar.js, so the strip can never make the <=9% slab taller.
+   BOARD LAW as amended 9/17 (dad): the bar carries the TWO doors — 🚪 and 💬 —
+   and nothing else; they are its only dwell targets. The 9/4 amendment stands
+   and this strip is its whole extent. 💬 is absolutely centred on the bar and
+   this strip is right-anchored, so the two never meet (pinned at 1280x720). ---- */
+#partnerStrip{margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:10px}
+.stripbtn{height:var(--bar-inner, 40px); border:none; border-radius:10px; padding:0 14px;
+          cursor:pointer; font-family:var(--font); line-height:1; white-space:nowrap;
+          font-size:calc(var(--bar-inner, 40px) * 0.34); font-weight:700;
+          background:rgba(255,255,255,.16); color:var(--bar-ink, #FFFFFF)}
+.stripbtn:hover{background:rgba(255,255,255,.28)}
+
+/* ---- 🔒 the media lock (T3/T4, dad 9/14) — the third strip button. It is
+   HELD, not tapped, so it has to show the hold happening: a conic-gradient ring
+   sweeps once over --hold-ms (board-lock.js writes its own 1600ms finger hold
+   into that property, so the animation and the timer can never disagree). The
+   ring runs on a pseudo-element, which cannot be tapped and so cannot swallow
+   the pointerup that would cancel the hold.
+   touch-action is `none`, NOT `manipulation`: manipulation still allows
+   panning, so a firm finger that rolled past the touch slop became a pan,
+   Chromium sent pointercancel, and the hold died (dad 9/27, found on the
+   clothing tile first; era-core/dwell.js:58's 7/28 lesson). The strip never
+   scrolls, so `none` costs nothing here. The user-select/callout pair is the
+   rest of the Windows/WebKit long-press furniture board-lock.js's
+   preventDefault cannot reach. ---- */
+.stripbtn.lock{touch-action:none; -webkit-user-select:none; user-select:none;
+          -webkit-touch-callout:none; position:relative; overflow:hidden;
+          min-width:var(--bar-inner, 40px)}
+.stripbtn.lock::after{content:""; position:absolute; inset:0; pointer-events:none;
+          border-radius:inherit; opacity:0;
+          background:conic-gradient(rgba(255,255,255,.55) var(--sweep, 0turn), transparent 0)}
+.stripbtn.lock.holding::after{opacity:1; animation:lockSweep var(--hold-ms, 1600ms) linear forwards}
+@keyframes lockSweep{from{--sweep:0turn} to{--sweep:1turn}}
+@property --sweep{syntax:"<angle>"; inherits:false; initial-value:0turn}
+/* locked reads at a glance from across a room: the quiet chrome goes solid
+   amber, the same "a grown-up did this on purpose" colour as #launchWarn. */
+.stripbtn.lock.locked{background:#8A5A18; color:#fff}
+
+/* the banner. #launchWarn's treatment exactly (touch only, NEVER .dwell,
+   pointer-events:none so a tap on it reaches the board underneath) with one
+   difference: no timer. It stands for as long as the lock does, because a
+   grown-up walking up to a silent board should be able to read WHY.
+   Which is also why bottom:6px here is only the NO-FOOTER case: at that shared
+   6px it painted on the no-sound footer (recorded run 9/14 — "check the speakers
+   or W[Locked until 10:45 PM]"), so board-lock.js MEASURES whichever standing
+   footers are showing and sets `bottom` inline to sit 6px above the highest, the
+   same way setLaunchWarn does. The standing footers never move for it. */
+#lockWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:#8A5A18; color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:73; pointer-events:none;
+         font-family:var(--font); text-align:center}
+#lockWarn.show{display:block}
+
+/* ---- the passcode keypad (T4). A grown-up surface behind a hold, so touch and
+   click are both fine — but it is on HER screen, so nothing in it is a gaze
+   target and every key is a >=90px box (invariants law 1). Above the partner
+   sheet: a lock a parent is unlocking is the only thing they are looking at. */
+#lockPad{position:fixed; inset:0; z-index:95; display:flex; align-items:center; justify-content:center;
+         background:rgba(0,0,0,.55)}
+.lockpad-card{background:#FFFFFF; color:var(--ink, #17272E); font-family:var(--font);
+         padding:22px 24px; border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,.35);
+         display:flex; flex-direction:column; align-items:center; gap:14px}
+.lockpad-title{font-size:24px; font-weight:700}
+.lockpad-dots{display:flex; gap:12px; height:22px; align-items:center}
+.lockpad-dot{width:16px; height:16px; border-radius:50%; background:transparent;
+         border:3px solid var(--line, #B9C7CC)}
+.lockpad-dot.on{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58)}
+.lockpad-grid{display:grid; grid-template-columns:repeat(3, 96px); gap:12px}
+.lockpad-key{width:96px; height:96px; border:none; border-radius:14px; cursor:pointer;
+         font-family:var(--font); font-size:34px; font-weight:700;
+         background:#E3EAEC; color:var(--ink, #17272E)}
+/* the bottom-left cell: an inert span holding the column so ⌫ stays under 9 —
+   there is no ✓ key, because the fourth digit submits by itself. */
+.lockpad-gap{width:96px; height:96px}
+.lockpad-foot{width:100%; display:flex; justify-content:center}
+.lockpad-foot .lockpad-key{width:100%; font-size:24px}
+/* a wrong passcode says so the way a locked door does: it moves and stays shut. */
+.lockpad-card.shake{animation:lockShake 360ms ease-in-out}
+@keyframes lockShake{0%,100%{transform:translateX(0)} 20%{transform:translateX(-12px)}
+         40%{transform:translateX(12px)} 60%{transform:translateX(-8px)} 80%{transform:translateX(8px)}}
+
+/* the sheet the strip opens: a plain modal card, pointer-only like the strip.
+   Above the footer notes (z 70), below nothing — it is the only thing a parent
+   is looking at while it is up, and Close/Escape/backdrop all dismiss it. */
+#partnerSheet{position:fixed; inset:0; z-index:90; display:flex;
+              align-items:center; justify-content:center; background:rgba(0,0,0,.45)}
+.sheet-card{background:#FFFFFF; color:var(--ink, #17272E); font-family:var(--font);
+            width:min(560px, 88vw); max-height:88vh; overflow:auto;
+            padding:22px 24px; border-radius:18px; box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.sheet-card h2{margin:0 0 8px; font-size:28px}
+.sheet-hint{margin:0 0 14px; font-size:19px; line-height:1.3}
+#sheetInput{width:100%; box-sizing:border-box; font-family:var(--font); font-size:22px;
+            padding:10px 12px; border:2px solid var(--line, #B9C7CC); border-radius:10px}
+.sheet-row{display:flex; gap:12px; margin-top:14px}
+.sheet-btn{flex:0 0 auto; border:none; border-radius:10px; padding:12px 20px; cursor:pointer;
+           font-family:var(--font); font-size:20px; font-weight:700;
+           background:#E3EAEC; color:var(--ink, #17272E)}
+.sheet-btn.go{background:var(--teal-deep, #0B4E58); color:#FFFFFF}
+.sheet-btn[disabled]{opacity:.55; cursor:default}
+.sheet-say{margin-top:14px; font-size:19px; line-height:1.3; min-height:1.3em}
+
+/* the movies search grid (T5.4): the rows a grown-up picks the right "peter
+   rabbit" out of. Buttons, not tiles — nothing here is a gaze target, so the
+   sizing answers to a finger and a mouse only. auto-fill keeps three posters
+   across on the card and drops to one on a phone-width kiosk. */
+#sheetResults{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+              gap:12px; margin-top:16px; max-height:46vh; overflow:auto}
+.sheet-result{display:flex; flex-direction:column; align-items:stretch; gap:2px;
+              border:2px solid var(--line, #B9C7CC); border-radius:12px; padding:8px;
+              background:#FFFFFF; color:var(--ink, #17272E); font-family:var(--font);
+              text-align:left; cursor:pointer}
+.sheet-result:hover{border-color:var(--teal-deep, #0B4E58); background:#F2F7F8}
+.sheet-result[disabled]{opacity:.55; cursor:default}
+.sheet-poster{width:100%; aspect-ratio:2 / 3; object-fit:cover; border-radius:8px;
+              margin-bottom:6px; background:#E3EAEC}
+.sheet-title{font-size:17px; font-weight:700; line-height:1.2}
+.sheet-year{font-size:15px; color:#4A6069}
+/* the one line that answers "can we actually watch this tonight?" */
+.sheet-where{font-size:15px; font-weight:700; color:var(--teal-deep, #0B4E58)}
+/* TMDB's terms: the credit rides with their art, in the hub's own wording. */
+.sheet-credit{margin-top:10px; font-size:13px; line-height:1.3; color:#4A6069}
+
+/* ---- arrange mode (T4.5): the songs stop being doors and become things to
+   move. The dashed teal edge is the whole affordance — a parent can see which
+   tiles a finger may pick up, and touch-action:none replaces what the .dwell
+   class used to give them (board-arrange.js takes that class away so dwell.js's
+   long-press rescue cannot click a song at the end of a drag). ---- */
+.board-area.arranging .tile{cursor:grab}
+/* teal, not white: a song tile IS a white photo plate, so a white dash on it is
+   an invisible affordance (seen in the T4.5 recording). */
+.board-area.arranging .tile[data-arrange-id]{touch-action:none;
+      outline:5px dashed var(--teal,#0F7C8A); outline-offset:-7px}
+.board-area.arranging .tile.dragging{cursor:grabbing; z-index:80; opacity:.88;
+      box-shadow:0 12px 30px rgba(23,39,46,.45)}
+.board-area.arranging .tile.drop-target{outline:8px solid var(--teal,#0F7C8A); outline-offset:-8px}
+
+/* the arrange pill: the wardrobe/book footer treatment, and pointer-events:none
+   so it can never swallow the end of a drag that finishes over it. */
+#arrangeNote{position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:70vw;
+      background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+      padding:8px 18px; border-radius:12px; z-index:80; font-family:var(--font);
+      text-align:center; pointer-events:none}
+/* it is the last strip added to the page, so it stacks on top of whichever of
+   the standing footers happen to be showing (the #contentNote ladder). */
+#ttsWarn.show ~ #arrangeNote,
+#wardrobeNote.show ~ #arrangeNote,
+#contentNote.show ~ #arrangeNote{bottom:60px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #arrangeNote,
+#ttsWarn.show ~ #contentNote.show ~ #arrangeNote,
+#wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:114px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:168px}
+
+/* ---- board grid: fills the whole remaining area with wide rectangles ---- */
+.board-area{flex:1 1 auto; width:100%; display:grid;
+            place-content:center; overflow:hidden}
+
+/* 12px, not 26: measured off Ellie's original tablet (dad 9/5, "match that old
+   style") — a tight radius on tightly packed tiles reads as one dense board. */
+.cell{border-radius:12px; overflow:hidden; position:relative;
+      width:100%; height:100%}
+.rest{background:#000000}
+
+.tile{border:none; padding:0; margin:0; cursor:pointer; font-family:var(--font);
+      box-shadow:0 4px 16px rgba(23,39,46,.14);
+      display:flex; align-items:center; justify-content:center}
+.tile.type-outfit, .tile.type-clothing, .tile.type-word{border:3px solid var(--line)}
+
+/* Labels: word-boundary wrapping ONLY. Never break-word, never hyphenate,
+   never clip — board-render.js guarantees fit by sizing font + label area. */
+.tile-label{font-weight:800; line-height:1.05; text-align:center;
+            white-space:normal; word-break:normal; overflow-wrap:normal;
+            hyphens:none; min-width:0}
+
+/* photo tiles: photo fills the top, solid full-width label plate below
+   (paper bg / ink text — guaranteed contrast, TD Snap look).
+   object-fit:CONTAIN — the WHOLE garment must fit in frame (dad 7/24: cover
+   was cropping waistbands/zooming into a blob). White letterbox = the tile's
+   own white bg, so it reads as a clean product shot. */
+.tile.photo{flex-direction:column; padding:0; align-items:stretch; background:#fff}
+.photo-img{flex:1 1 auto; min-height:0; width:100%; object-fit:contain;
+           object-position:center; display:block; padding:6px}
+.tile-label.plate{flex:0 0 auto; width:100%; background:var(--paper); color:var(--ink);
+                  padding:8px 10px; display:flex; align-items:center; justify-content:center;
+                  border-top:2px solid var(--line)}
+
+/* icon tiles: image + label, beside (the picture is BIG, the word next to it —
+   her tablet's look, dad 9/2) or stacked when a word cannot fit beside at all.
+   Padding and gap are tight so a narrow tile still leaves the label room. */
+.tile.icon{gap:8px; padding:10px 12px}
+.tile.icon.beside{flex-direction:row}
+.tile.icon.stacked{flex-direction:column}
+.tile.icon .tile-img.contain{object-fit:contain}
+/* --icon-w is set per tile by board-render.js (42%, 45% on the weather plate,
+   and only as a last resort 30% when a long word has nowhere else to go). */
+.tile.icon.beside .tile-img{flex:0 0 var(--icon-w,42%); width:var(--icon-w,42%); height:82%}
+.tile.icon.beside .tile-label{flex:1 1 auto; text-align:left; min-width:0}
+/* min-height:0 is deliberate, and the fix for a squeezed picture is NOT to
+   floor it here: a floor steals the label's room and the font drops under the
+   74px gaze contract (QA 9/2 measured 54-58px). A tile that needs both a real
+   picture and real text goes BESIDE instead — see BESIDE_MIN_W. */
+.tile.icon.stacked .tile-img{flex:1 1 auto; min-height:0; width:74%; align-self:center}
+.tile.icon.stacked .tile-label{flex:0 0 auto; max-width:100%}
+
+/* weather plate (dad 9/2, matching her tablet): the sun/cloud leads at 45% of
+   the tile with "76°" over "warm" beside it — deliberately SMALLER text than
+   the rest of the board ("weather text is too big cannot see sunny/cloudy
+   image"), which is why board-render starts its fitter low. The bottom padding
+   reserves the freshness-stamp line so it can never land on the temperature
+   again (it did at 1024 wide, QA 9/2). */
+.tile.icon.weather{padding-bottom:26px}
+/* dad-only freshness stamp (weather tile): deliberately tiny — a debug read
+   for dad, NOT a choice for Ellie, so it sits below the 74px contract floor.
+   ONE line, always: since 9/5 the stamp can carry the window too ("for 10 AM-1 PM ·
+   updated Fri Sep 5, 7:02 AM" — 42 chars against the 26 the padding above was
+   measured for), and a second line would land straight back on the temperature.
+   nowrap + ellipsis makes that impossible instead of merely unlikely. */
+.tile-foot{position:absolute; left:0; right:0; bottom:5px; text-align:center;
+           font-size:16px; font-weight:600; opacity:.55; pointer-events:none;
+           white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+/* ---- partner warn banner (T2.2) — touch only, NOT .dwell, styled like Pencil's
+   #ttsWarn. Hidden until board.js finds TTS fell back/off. ---- */
+/* Bottom-centre, never the bar: anchored left it covered the exit door once the
+   bar slimmed, and centred at the top it covered the bar controls of the day
+   (pixel gate, 9/1). Width is capped so a longer sentence wraps instead of growing
+   across the screen.
+   HONEST NOTE (9/5): "down here it only overlaps inert rest cells" was never true on
+   the outfit board — the bottom-middle cells are outfit tiles, and this banner covers
+   their label plates (bottom row 757->1067 at 1080 tall, plate 1005->1067, banner from
+   ~1012 down). The tighter 9/5 spacing pushed that ~9px worse, it did not cause it.
+   The pixel gate cannot see it: its OCCLUDED check reads elementFromPoint at each
+   .dwell target's CENTRE, and a plate is not a target. It only shows in the degraded
+   TTS state, so the picture still reads — but the word under it does not. Moving the
+   banner is a board-design call (every bottom-anchored strip overlaps the grid now that
+   vPad is 12, and reserving a strip in availH would be a layout shift when it appears),
+   so it waits for dad rather than being quietly redesigned here. */
+#ttsWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:52vw;
+         background:#B23A48; color:#fff; font-size:19px; line-height:1.25;
+         padding:7px 16px; border-radius:12px; z-index:70;
+         font-family:var(--font)}
+#ttsWarn.show{display:block}
+
+/* ---- offline banner (T3.3) — same partner-strip treatment, warm amber so it
+   reads "degraded" not "broken"; sits below ttsWarn if both ever show. ---- */
+#netWarn{display:none; position:fixed; bottom:60px; left:50%; transform:translateX(-50%); max-width:52vw;
+         background:#8A5A18; color:#fff; font-size:19px; line-height:1.25;
+         padding:7px 16px; border-radius:0 0 12px 12px; z-index:70;
+         font-family:var(--font)}
+#netWarn.show{display:block}
+
+/* ---- movie launch banner (T7.6 bug 4, VM QA 9/5) — the tile's 2 s dashed
+   flag said "something refused" and nothing said WHAT: a touch-only family
+   that unticked ERAgaze has a Movies app whose tiles can never play. Same
+   amber partner strip as #netWarn, bottom-centre, above every standing footer
+   (it is transient: cleared by the next real launch or by its own timer).
+   Touch only, NOT .dwell — and pointer-events:none so a tap on it reaches the
+   tile underneath instead of dying on the banner. ---- */
+#launchWarn{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:#8A5A18; color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:72; pointer-events:none;
+         font-family:var(--font); text-align:center}
+#launchWarn.show{display:block}
+/* "above every standing footer" was only a z-index until review 9/5 — it
+   painted ON #ttsWarn (no sound) and #contentNote (book news) at the same 6px,
+   and the sentence under it was gone for the twelve seconds it stood. It is
+   not in the footers' `~` ladder above: the div sits BEFORE #wardrobeNote and
+   #contentNote in index.html, and a fixed 54px rung would not clear a wrapped
+   footer anyway (#ttsWarn wraps to two lines at 52vw on a 1920-wide screen: 61px).
+   So board-render's setLaunchWarn MEASURES whichever footers are showing and
+   sets `bottom` inline to sit 6px above the highest; the standing footers never
+   move for it. bottom:6px here is the no-footer case. */
+
+/* ---- wardrobe footer (dad 9/3: "I added photos after my first run - a
+   footer that says new photos were found and are processing"). Same partner
+   strip as the warn banners, teal so it reads "working" not "wrong"; sits
+   above ttsWarn's slot. Touch only, NOT .dwell - "tap to see them" is for the
+   grown-up; the watcher reloads for her once she is idle anyway. ---- */
+#wardrobeNote{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:70; font-family:var(--font)}
+#wardrobeNote.show{display:block}
+#wardrobeNote.ready{cursor:pointer; background:#1F6F3A}
+#ttsWarn.show ~ #wardrobeNote.show{bottom:60px}
+
+/* ---- book footer (T2.11) — the wardrobe strip's twin for the OTHER slow job
+   a grown-up starts from Drive: a book being read off its photos and narrated.
+   Same teal "working" treatment; the finished-with-flags state carries a plain
+   link to the review page. Touch only, NOT .dwell - book words are a grown-up's
+   job. Stacks above the strips already showing (it is last in the DOM). ---- */
+#contentNote{display:none; position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:60vw;
+         background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
+         padding:8px 18px; border-radius:12px; z-index:70; font-family:var(--font)}
+#contentNote.show{display:block}
+#contentNote.ready{background:#1F6F3A}
+#contentNote a{color:#fff; text-decoration:underline; white-space:nowrap}
+#ttsWarn.show ~ #contentNote.show,
+#wardrobeNote.show ~ #contentNote.show{bottom:60px}
+#ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show{bottom:114px}
+
+/* ---- boot splash (T3.3) — nothing-to-show case; static text under the same
+   door strip the board wears (its dwell targets are the doors and nothing
+   else — dad 9/3 for 🚪, 9/17 for 💬) */
+.splash{flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
+        font-family:var(--font); font-size:56px; font-weight:700; color:var(--ink);
+        text-align:center; padding:0 6vw}
+.splash-note{flex:0 0 auto; font-family:var(--font); color:var(--ink); text-align:center;
+             padding:0 6vw 5vh}
+
+/* ---- dwell onset delay (T2.1) — layered on dwell.js's existing .dwell-fill.
+   dwell.js drives the fill's HEIGHT every frame (its clock is untouched); here we
+   gate only OPACITY so the first ~200ms of a hold shows nothing — a passing glance
+   never flashes fill, and visible feedback fades in at ~200ms. dwell.js adds
+   .dwell-active BEFORE it inserts the fill, so a transition can't fire (no initial
+   render transitions) — we use an ANIMATION, which DOES run on first paint. The
+   fill's HEIGHT still tracks true progress throughout; only its opacity is gated.
+   Selectors are .tile-scoped to outrank dwell.js's injected .dwell-fill rules
+   (equal specificity, appended last). NO dwell.js edit.
+   The identical .bardoor half — and the keyframe it shares — moved to era-core
+   lib/doorbar.css on 9/17 so the two doors carry the onset delay wherever the
+   bar goes; doorbar.css is linked first, so its @keyframes dwellOnset is the
+   one declaration of the name on this page and this file names no second. */
+.tile.dwell-active .dwell-fill{opacity:.28; animation:dwellOnset 340ms linear both}
+.tile.dwell-paused .dwell-fill{animation:none; opacity:.14}
+@media (prefers-reduced-motion: reduce){
+  .tile.dwell-active .dwell-fill{animation:none}
+}
+
+/* ---- Songs Board (spec 8/24): the active song's tile wears a thick green
+   ring + a corner note badge so "what is playing" reads at a glance. Static
+   by design (no pulse — reduced-motion safe, and motion near tiles fights
+   the dwell fill). */
+.tile.playing{outline:8px solid #2E9E4B; outline-offset:-8px}
+.tile.playing::after{content:"♪"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#2E9E4B; pointer-events:none}
+
+/* glyph tiles (songs-board back arrow): one big centered glyph */
+.tile.glyph{align-items:center; justify-content:center}
+.tile-glyph{font-weight:800; line-height:1}
+
+/* full-mode acknowledgment (dad 8/24 r3): strip under the hero image, hidden
+   until the whole song is authorized; the Full song tile goes green too. */
+.full-badge{display:none; flex:0 0 auto; width:100%; text-align:center;
+  background:#2E9E4B; color:#fff; font-weight:800; font-size:34px;
+  padding:8px 0; line-height:1.2}
+.tile.photo.full-on .full-badge{display:block}
+.tile.type-full.active{background:#2E9E4B !important; color:#fff}
+/* glyph tiles may carry a word under the arrow */
+.tile.glyph{flex-direction:column; gap:4px}
+
+/* song-page hero (dad r4): title and the full-song strip at reading size */
+.tile.photo.hero .full-badge{font-size:64px; padding:14px 0}
+
+/* ---- Movies Board (spec 8/29) — same static ring/badge system as .playing:
+   no pulse (reduced-motion safe; motion near tiles fights the dwell fill). */
+/* mark:"next" — the next unwatched episode wears a teal ring + play glyph */
+.tile.mark-next{outline:8px solid #0F7C8A; outline-offset:-8px}
+.tile.mark-next::after{content:"▶"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#0F7C8A; pointer-events:none}
+/* mark:"again" — the last-watched episode, offered as a rewatch (rewatch is a
+   comprehension WIN, spec clinical grounding): calm grey replay glyph, no ring */
+.tile.mark-again::after{content:"↻"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#6B7B82; pointer-events:none}
+/* currently watching (set only after a SUCCESSFUL /app/launch): green ring +
+   glyph, exactly the .playing treatment. Declared LAST so it wins the outline
+   and ::after over any mark-* on the same tile. */
+.tile.watching{outline:8px solid #2E9E4B; outline-offset:-8px}
+.tile.watching::after{content:"▶"; position:absolute; top:6px; right:14px;
+  font-size:44px; font-weight:800; color:#2E9E4B; pointer-events:none}
+/* launch failure (ERAgaze away/refusing): brief calm grey flag on the tile she
+   picked — never red (alarm colors are partner-only), gone in ~2s, the board
+   stays fully usable for a caregiver rescue. */
+.tile.launch-failed{outline:8px dashed #6B7B82; outline-offset:-8px; opacity:.72}
+
+/* ---- the hold-to-edit sheet (T8, dad 9/17) --------------------------------
+   A grown-up holds a FINGER on a tile that names clothes and gets a sheet that
+   can move an item to another category, mark it fancy, or take it off the
+   board. The tokens are the media lock's (board.css above): the same ring while
+   the finger is down, the same white card on a dark scrim, the same >=56px
+   touch targets — a grown-up learning one hold has learned both.
+
+   .holding rides on the TILE here rather than on a strip button, so the sweep
+   sits under the photo's own plate; .cell already gives it position:relative
+   and overflow:hidden, and the pseudo-element cannot be tapped, so it can never
+   swallow the pointerup that would cancel the hold.
+   touch-action/user-select/callout are the Windows+WebKit long-press furniture
+   (board-edit.js deliberately never preventDefaults the pointerdown — a tap on
+   a tile is her board — so the CSS side has to refuse it). touch-action is
+   `none`, NOT `manipulation`: manipulation still allows panning, so a firm
+   finger that rolled past the touch slop became a pan, Chromium sent
+   pointercancel, and the ring stopped with no sheet (dad 9/27). It is the lesson
+   era-core/dwell.js:58 learned on 7/28 and put on .dwell — which this rule,
+   being more specific, had been overriding on exactly these tiles. */
+.board-area .tile[data-items]{touch-action:none; -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none}
+.board-area .tile.holding::before{content:""; position:absolute; inset:0; z-index:2;
+  pointer-events:none; border-radius:inherit; opacity:1;
+  background:conic-gradient(rgba(11,78,88,.42) var(--sweep, 0turn), transparent 0);
+  animation:lockSweep var(--hold-ms, 1600ms) linear forwards}
+
+/* the sheet. Fixed to the bottom, ABOVE whichever standing footers are showing
+   (board-edit.js measures and sets `bottom` inline — the footers never move for
+   it, the same deal #lockWarn and #launchWarn take). z above the board and the
+   footers, below the lock's keypad: a passcode a parent is typing wins. */
+#editSheet{position:fixed; left:0; right:0; bottom:6px; z-index:90;
+  display:flex; justify-content:center; padding:0 12px; font-family:var(--font)}
+.edit-card{width:min(1100px, 100%); max-height:74vh; overflow-y:auto;
+  background:#FFFFFF; color:var(--ink, #17272E); border-radius:18px;
+  box-shadow:0 12px 40px rgba(0,0,0,.35); padding:18px 20px;
+  display:flex; flex-direction:column; gap:14px}
+.edit-title{font-size:24px; font-weight:700}
+.edit-row{display:flex; gap:16px; align-items:flex-start;
+  border-top:2px solid var(--line, #B9C7CC); padding-top:14px}
+.edit-row:first-of-type{border-top:none; padding-top:0}
+.edit-thumb{width:96px; height:96px; flex:0 0 96px; object-fit:cover;
+  border-radius:12px; background:#E3EAEC; border:2px solid var(--line, #B9C7CC)}
+.edit-main{flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:10px}
+.edit-name{font-size:22px; font-weight:700; overflow-wrap:anywhere}
+.edit-chips, .edit-toggles{display:flex; flex-wrap:wrap; gap:10px}
+/* chips as pills, and never under the 56px a finger needs */
+.edit-chip, .edit-opt, .edit-fancy, .edit-hide, .edit-btn{min-height:56px; border:3px solid var(--line, #B9C7CC);
+  border-radius:28px; padding:0 22px; cursor:pointer; font-family:var(--font);
+  font-size:20px; font-weight:700; background:#FFFFFF; color:var(--ink, #17272E)}
+.edit-chip.on, .edit-opt.on{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58); color:#FFFFFF}
+/* Sleeves · Legs · Weight (9/29, warmth coherence spec D4): one line per
+   field, a label then its chips — the category chips' pill and colour, so a
+   parent reads them as the same kind of choice. The label is text, not a
+   target; the lines exist only when they apply (board-edit.js drawFit), so no
+   [hidden] rule is needed. */
+.edit-fit{display:flex; flex-direction:column; gap:10px}
+.edit-fit:empty{display:none}
+.edit-field{display:flex; flex-wrap:wrap; align-items:center; gap:10px}
+.edit-label{font-size:20px; font-weight:700; min-width:96px; color:var(--ink, #17272E)}
+.edit-fancy.on{background:#8A5A18; border-color:#8A5A18; color:#FFFFFF}
+.edit-hide.on{background:#6B2F2F; border-color:#6B2F2F; color:#FFFFFF}
+.edit-msg{display:none; font-size:20px; line-height:1.3; color:#6B2F2F; font-weight:700}
+.edit-msg.show{display:block}
+.edit-foot{display:flex; justify-content:flex-end; gap:12px}
+.edit-btn{border-radius:14px; min-width:150px}
+.edit-btn.primary{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58); color:#FFFFFF}
+.edit-card button[disabled]{opacity:.55; cursor:default}

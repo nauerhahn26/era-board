@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ellie Board</title>
+<!-- the shared message bar (era-core lib/doorbar.js), FIRST so board.css can
+     still say the last word about anything it wants to tune on this page -->
+<link rel="stylesheet" href="../lib/doorbar.css">
+<link rel="stylesheet" href="board.css">
+<script>
+  // Dwell config (Phase 2). No chimes, no spoken preview (Speech.js owns voice,
+  // barge-in everywhere). Look-away forgiveness + gaze-bus validity gate mirror
+  // the proven Pencil config; per-tile data-dwell-ms overrides the base `ms`.
+  // NOTE: dwell.js's option key is `bus` (not busUrl); "ws://127.0.0.1:49155" is
+  // the authoritative gaze bus (same as "auto" default). Keys verified in dwell.js.
+  window.DwellConfig = {
+    ms: 1200, graceMs: 400, decayMs: 1000, padPx: 16, rearmPx: 48,
+    audioPreview: false, chime: false, bus: "ws://127.0.0.1:49155",
+    staleMs: 600, color: "#0F7C8A"
+  };
+</script>
+</head>
+<body>
+  <!-- partner-only warn banners (touch, NOT .dwell) -->
+  <div id="ttsWarn">🔈 No sound on this computer — the board still works; check the speakers or Windows sound settings.</div>
+  <div id="netWarn">⚠ Server unreachable — showing the last saved board.</div>
+  <!-- launch refused/unreachable (touch only): the board never plays video
+       itself, so without ERAgaze a movie or a This week video does nothing —
+       say so (VM QA 9/5); generic since both boards share it (spec 2026-10-12),
+       still naming ERAgaze + Settings for the grown-up (board-movies pins it) -->
+  <div id="launchWarn">Not now — try again in a moment. Videos play through ERAgaze: if this keeps happening, a grown-up can tick it under Settings › 🧩 Apps, or start it from the desktop.</div>
+  <!-- wardrobe footer (touch only): new photos being added / new outfits ready (dad 9/3) -->
+  <div id="wardrobeNote"></div>
+  <!-- book footer (touch only): a book being built from Drive photos, and the
+       tap to its review page when it lands with words the AI was unsure of -->
+  <div id="contentNote"></div>
+  <main id="app"><!-- message bar + board grid injected by board-render.js --></main>
+  <script src="../dwell.js"></script>
+  <script src="../speech.js"></script>
+  <script type="module" src="board.js"></script>
+</body>
+</html>
