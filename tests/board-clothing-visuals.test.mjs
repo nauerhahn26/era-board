@@ -34,14 +34,14 @@ const FIXTURE = {
     { id: "today", name: "What will I wear today?", rows: 3, columns: 4,
       buttons: [
         { label: "82°  hot", type: "control", symbol: "sun",
-          say: "Today it is hot.", row: 1, col: 1 },
+          say: "Today it is hot.", footnote: "Sample forecast", row: 2, col: 2, col_span: 2 },
         { label: "Heart tee + leggings", say: "Heart tee and pink leggings",
           type: "outfit", image: "wardrobe-outfits/outfit_0.jpg",
           load: "confirm_0", say_on_load: true, combo: ["item_a", "item_b"],
           items: [TEE, LEGGINGS] },
         { label: "This one", say: "I want to wear this one", type: "outfit",
           image: "clothing-web/IMG_1.jpg" },
-        { label: "Build my own", type: "category", symbol: "clothes",
+        { label: "Full wardrobe", type: "category", image: "board/wardrobe.svg",
           load: "build", row: 3, col: 4 },
       ] },
     { id: "confirm_0", name: "This one?", rows: 3, columns: 2,
@@ -64,7 +64,7 @@ const FIXTURE = {
         { label: "Pants", type: "category", symbol: "trousers", load: "cat_top" },
         { label: "Back", type: "back", glyph: "←", load: "today" },
       ] },
-    { id: "build", name: "Build my own", rows: 3, columns: 2,
+    { id: "build", name: "Full wardrobe", rows: 3, columns: 2,
       buttons: [
         { label: "Tops", type: "category", symbol: "shirt", load: "cat_top" },
         { label: "Back", type: "back", glyph: "←", load: "today" },
@@ -132,7 +132,7 @@ test("clothing tiles fill their cells like Ellie's board", async () => {
 // reading the label ("Heart tee + leggings" is one string and two garments).
 // So the render stamps the ids on the tile for a selector to find, and keeps
 // the item OBJECTS in a WeakMap the sheet asks for by element. A tile that
-// names no clothes (More, Build my own, the weather plate, a raw pre-catalog
+// names no clothes (More, Full wardrobe, the weather plate, a raw pre-catalog
 // photo) carries neither — `[data-items]` is the whole arming filter.
 test("tiles that name wardrobe items carry their ids, and the objects behind them", async () => {
   const browser = await chromium.launch();
@@ -145,7 +145,7 @@ test("tiles that name wardrobe items carry their ids, and the objects behind the
     const plain = page.locator('.tile.type-outfit', { hasText: "This one" });
     assert.equal(await plain.getAttribute("data-items"), null,
       "a pre-catalog photo names no catalogued item: no attribute at all");
-    assert.equal(await page.locator('.tile', { hasText: "Build my own" }).getAttribute("data-items"), null,
+    assert.equal(await page.locator('.tile', { hasText: "Full wardrobe" }).getAttribute("data-items"), null,
       "…and neither does a door");
 
     // The objects. Same module instance the page rendered with (an ES module is
@@ -155,7 +155,7 @@ test("tiles that name wardrobe items carry their ids, and the objects behind the
       const pick = (sel, text) => [...document.querySelectorAll(sel)]
         .find((el) => (el.textContent || "").includes(text));
       const o = pick(".tile.type-outfit", "Heart tee");
-      const d = pick(".tile", "Build my own");
+      const d = pick(".tile", "Full wardrobe");
       return {
         has: typeof m.tileButton === "function",
         outfit: (m.tileButton(o) || {}).items || null,
@@ -177,5 +177,44 @@ test("tiles that name wardrobe items carry their ids, and the objects behind the
       const m = await import("./board-render.js");
       return m.tileButton(document.querySelector(".tile.type-clothing")).items.length;
     }), 1, "…and one object");
+  } finally { await browser.close(); }
+});
+
+
+test("weather spans the centre quietly and speaks repeatedly without choosing clothes", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page, outfitEvents } = await makePage(browser);
+    const weather = page.locator('.tile[aria-label="82°  hot"]');
+    const style = await weather.evaluate(el => ({
+      bg: getComputedStyle(el).backgroundColor,
+      ink: getComputedStyle(el).color,
+      column: el.style.gridColumn,
+      row: el.style.gridRow,
+      say: el.dataset.dwellSay,
+    }));
+    assert.equal(style.bg, "rgb(206, 219, 214)");
+    assert.equal(style.ink, "rgb(23, 39, 46)");
+    assert.equal(style.column, "2 / span 2");
+    assert.equal(style.row, "2");
+    assert.equal(style.say, "Today it is hot.");
+    await page.evaluate(() => { window.__speechLog.length = 0; });
+    await page.waitForFunction(() => window.Dwell && window.Dwell.state().suppressedMs === 0);
+    const box = await weather.boundingBox();
+    const hold = Number(await weather.getAttribute("data-dwell-ms"));
+    for (let i = 0; i < 2; i++) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(hold + 500);
+      assert.equal(await page.locator('.tile[aria-label="82°  hot"]').count(), 1);
+      await page.mouse.move(5, 5);
+      await page.waitForTimeout(500);
+    }
+    assert.deepEqual(await page.evaluate(() => window.__speechLog
+      .filter(e => e.call === "say").map(e => e.text)), ["Today it is hot.", "Today it is hot."]);
+    assert.equal(outfitEvents.length, 0);
+    const door = page.locator('.tile[aria-label="Full wardrobe"]');
+    assert.ok(await door.locator('img').evaluate(el => el.complete && el.naturalWidth > 0));
+    await door.click();
+    assert.equal(await page.locator('.tile[aria-label="Tops"]').count(), 1);
   } finally { await browser.close(); }
 });
