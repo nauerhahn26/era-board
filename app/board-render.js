@@ -279,9 +279,11 @@ function makeTile(btn, w, h, dwellMs) {
   el.setAttribute("aria-label", btn.label || "");
   el.dataset.dwellSay = btn.say != null ? btn.say : (btn.label || "");
 
-  const bg = CONFIG.color[type] || CONFIG.color.control;
+  // A forecast remains a speaking control, with a quiet sage background.
+  const isWeather = btn.footnote != null;
+  const bg = isWeather ? "#CEDBD6" : (CONFIG.color[type] || CONFIG.color.control);
   el.style.background = bg;
-  el.style.color = LIGHT_BG.has(type) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
+  el.style.color = (isWeather || LIGHT_BG.has(type)) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
 
   // Movies board episode marks (spec §2 generator): "next" = the highlighted
   // next-unwatched episode; "again" = the last-watched, offered as a rewatch.
@@ -292,7 +294,6 @@ function makeTile(btn, w, h, dwellMs) {
   const src = btn.image ? imageSrc(btn.image) : (btn.symbol ? symbolSrc(btn.symbol) : null);
   // The weather plate is the tile carrying the dad-only freshness stamp — the
   // only button in any recipe with a `footnote` (era-hub clothing-worker.js).
-  const isWeather = btn.footnote != null;
   // songs-board control tiles maximize their text (dad's round 3): start the
   // fitter at the cap and let it walk down, instead of the h*0.3 heuristic.
   // The weather plate starts LOW (dad 9/2: "weather text is too big cannot see
