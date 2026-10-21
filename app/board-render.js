@@ -98,14 +98,15 @@ export const CONFIG = {
            exit: "#6B7B82",
            word: "#FFFFFF",
            song: "#FFFFFF", stop: "#0F7C8A",     // Songs Board (spec 8/24)
-           show: "#FFFFFF", movie: "#FFFFFF", episode: "#FFFFFF" }, // Movies (spec 8/29)
+           show: "#FFFFFF", movie: "#FFFFFF", episode: "#FFFFFF", // Movies (spec 8/29)
+           link: "#FFFFFF" },  // This week's Play door: painted like the show doors beside it
   INK_DARK: "#17272E",
   INK_LIGHT: "#FFFFFF",
 };
 
 // tiles whose ink should be dark (light backgrounds)
 const LIGHT_BG = new Set(["outfit", "clothing", "word", "song",
-                          "show", "movie", "episode"]);
+                          "show", "movie", "episode", "link"]);
 
 // movie/episode tiles LAUNCH the streaming app via ERAgaze — the board never
 // plays video (movies spec §5). Kept as a set because the ACTIVATION path still
@@ -116,6 +117,24 @@ const LAUNCH_TYPES = new Set(["movie", "episode"]);
 // the grid's own copy of the bar's 🚪, so it carries the bar's hold and fires
 // the bar's door (phase 4.1; holds amended 9/17).
 const EXIT_TYPE = "exit";
+
+// A tile that takes THIS kiosk window to another page of this hub (spec
+// 2026-10-12 §3.3 amended 10/21, §5.6): the This week `link` door (Play) and a
+// READY `video` (its /watch/ page). Same origin only — a path that starts with
+// one "/" and carries no "\", whitespace or angle bracket; anything else
+// ("http://…", "//host", "javascript:…") is painted but inert. The recipe is
+// trusted to draw; this rule is cheap and keeps it from aiming the window off
+// the hub.
+function safeHref(href) {
+  return typeof href === "string" && href.startsWith("/") && !href.includes("//") &&
+         !/[\\\s<>]/.test(href);
+}
+const WEEK_RE = /^\d{4}-\d{2}-\d{2}$/;
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+function videoHref(btn) {
+  if (!WEEK_RE.test(String(btn.week_of)) || !VIDEO_ID_RE.test(String(btn.id))) return null;
+  return "/watch/?w=" + btn.week_of + "&v=" + btn.id;
+}
 
 // dwellMs = her runtime hold (from /settings). Returns this tile's hold ms.
 // TWO SPEEDS ONLY (dad 9/17): a tile that leaves the app holds 2 x dwell;
@@ -537,8 +556,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   const launchKey = (btn) =>
     String(btn.titleId) +
     (btn.episode ? ":s" + btn.episode.s + "e" + btn.episode.e : "");
-  // a This week video is keyed by its id, never a titleId (it has none)
-  const videoKey = (btn) => "video:" + btn.id;
   function applyWatching() {
     for (const [k, el] of movieEls) el.classList.toggle("watching", k === watchingKey);
   }
@@ -648,35 +665,15 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     });
   }
 
-  // This week (spec 2026-10-12 §3.3): a READY video is a file on this hub, so
-  // the board hands ERAgaze the hub's own /watch/ page (absolute — the engine
-  // opens it in its own kiosk) and watch mode does the rest. Same fetch shape
-  // as launchMovie: no Content-Type, the 4 s wedge deadline. NOT a
-  // LAUNCH_TYPES member — launchMovie would post /movie-event for it.
-  function launchVideo(btn, el) {
-    const url = location.origin + "/watch/?w=" + btn.week_of + "&v=" + btn.id;
-    fetch("http://127.0.0.1:49155/app/launch", {
-      method: "POST", body: JSON.stringify({ url, watch: true }),
-      signal: AbortSignal.timeout(LAUNCH_DEADLINE_MS),
-    }).then((r) => {
-      if (!r.ok) throw new Error("launch " + r.status);
-      setLaunchWarn(false);
-      watchingKey = videoKey(btn);
-      applyWatching();
-      try {
-        fetch("/log", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ app: "this-week", door: "watch", week_of: btn.week_of,
-                                 id: btn.id, event: "launch" }),
-        }).catch(() => {});
-      } catch { /* telemetry is nice-to-have, never load-bearing */ }
-    }).catch(() => {
-      if (el && el.isConnected) {
-        el.classList.add("launch-failed");
-        setTimeout(() => el.classList.remove("launch-failed"), 2000);
-      }
-      setLaunchWarn(true);
-    });
+  // This week (spec 2026-10-12 §3.3 amended 10/21): a `link` door and a READY
+  // video both take THIS window to a page of this hub — nothing is launched,
+  // so nothing can open twice. (Phase 1 handed the /watch/ page to ERAgaze;
+  // on 10/13 the tile stayed under the gaze ring while the second kiosk was
+  // still appearing and the launch fired four times in four seconds.) The tile
+  // leaves the gaze's reach first — belt and braces, the page is going.
+  function leaveTo(href, el) {
+    if (el) el.setAttribute("data-dwell-disabled", "");
+    location.assign(href);
   }
 
   function applyPlaying(id) {
@@ -736,7 +733,8 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
       return;
     }
     if (LAUNCH_TYPES.has(type)) { launchMovie(btn, el); return; }
-    if (type === "video") { if (btn.id && btn.week_of) launchVideo(btn, el); return; }
+    if (type === "video") { const h = videoHref(btn); if (h) leaveTo(h, el); return; }
+    if (type === "link") { if (safeHref(btn.href)) leaveTo(btn.href, el); return; }
     // Songs Board v2 (dad's 8/24 feedback): playback lives ONLY on a song's own
     // page. A grid song door opens that page AND starts the default clip; the
     // hero tile on the page replays the clip; Full song un-caps it; Stop is
@@ -839,7 +837,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
       if (isPageDoor(btn)) el.dataset.arrangeNav = btn.load;
       if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
         movieEls.set(launchKey(btn), el);
-      if ((btn.type || "").toLowerCase() === "video" && btn.id) movieEls.set(videoKey(btn), el);
       place(el, rs, cs);
       fits.push(fit);
     }
