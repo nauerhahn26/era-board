@@ -20,6 +20,6 @@ Song pages (2026-10-25): the image spans three quarters of the board; Back,
 Stop and Full song fill the far-right column. Selecting a playing song's image
 advances a video still without changing playback. Ten screened pictures are
 cached for offline use. The touch-only Pictures panel lets a parent review or
-refresh a set, or use cover art. The hub owns capture and screening; coordinate
+refresh a set, choose a separate video for its pictures, or use cover art. The hub owns capture and screening; coordinate
 both worktrees using `ERA_WT_SUFFIX=--wt-music-player-ux-recruitment` and see
 `era-hub/docs/specs/2026-10-25-music-player-ux-recruitment.md`.

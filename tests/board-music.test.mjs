@@ -307,6 +307,15 @@ test("song pictures: ten frames cycle without restarting music, work offline, an
     await page.locator("#stripPictures").click();
     assert.equal(await page.locator(".song-pictures img").count(), 10);
     assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "review is touch only");
+    let pictureRequest;
+    await ctx.route("**/music/pictures", route => {
+      pictureRequest = route.request().postDataJSON();
+      return route.fulfill({ status: 409, contentType: "application/json", body: '{"message":"Test preview"}' });
+    });
+    await page.locator("#pictureVideoLink").fill("https://www.youtube.com/watch?v=picture-video");
+    await page.getByRole("button", { name: "Get video pictures" }).click();
+    await page.waitForFunction(() => document.querySelector("#sheetSay").textContent === "Test preview");
+    assert.deepEqual(pictureRequest, { id: "test-song-1", clear: false, url: "https://www.youtube.com/watch?v=picture-video" });
     assert.equal(await page.locator(".tile.dwell").count(), 0, "covered tiles cannot activate through the review");
     await page.locator("#sheetClose").click();
     assert.equal(await page.locator(".tile.dwell").count(), 4);

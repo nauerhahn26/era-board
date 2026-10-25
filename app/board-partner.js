@@ -589,6 +589,13 @@ function openPictures() {
     gallery.appendChild(img);
   }
   hint.after(gallery);
+  const linkLabel = document.createElement("label");
+  linkLabel.textContent = "Video link for pictures (optional)";
+  const videoLink = document.createElement("input");
+  videoLink.id = "pictureVideoLink"; videoLink.type = "url";
+  videoLink.placeholder = "Paste a music-video link if the original is only album art";
+  linkLabel.appendChild(videoLink);
+  gallery.after(linkLabel);
   const row = wrap.querySelector(".sheet-row");
   for (const clear of [false, true]) {
     const button = document.createElement("button");
@@ -601,7 +608,8 @@ function openPictures() {
         const status = await (await fetch("/music/add/status", { cache: "no-store" })).json();
         seenWhen = status.last ? status.last.when : null;
         const res = await fetch("/music/pictures", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: song.song_id, clear }) });
+          body: JSON.stringify({ id: song.song_id, clear,
+            ...(!clear && videoLink.value.trim() ? { url: videoLink.value.trim() } : {}) }) });
         const out = await res.json();
         if (!res.ok) { say(out.message || "Could not prepare pictures. Try again."); return; }
         say("Preparing pictures. The music stays available.");
