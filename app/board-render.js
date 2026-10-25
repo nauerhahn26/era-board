@@ -544,6 +544,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
 
   // --- playing-song marker (Songs Board): the active song's tile carries
   // .playing so she can see what is on. Survives page nav via re-apply in render.
+  const picturePositions = new Map();
   let songEls = new Map(); // song_id -> tile element (rebuilt every render)
 
   // --- currently-watching marker (Movies Board, spec 8/29): after a SUCCESSFUL
@@ -688,6 +689,30 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   }
   if (music) music.onState = applyPlaying;
 
+  function showPicture(btn, el, index) {
+    const pictures = Array.isArray(btn.pictures) ? btn.pictures : [];
+    if (pictures.length !== 10 || !pictures.every(p => /^music\/[a-z0-9-]+-frame-[a-f0-9]{16}-[0-9]{2}\.jpg$/.test(p))) return;
+    const img = el.querySelector(".photo-img");
+    if (!img || !music.pictureBlob) return;
+    const generation = (el._pictureGeneration || 0) + 1;
+    el._pictureGeneration = generation;
+    music.pictureBlob(pictures[index]).then(blob => {
+      if (!blob || !el.isConnected || el._pictureGeneration !== generation) return;
+      const next = URL.createObjectURL(blob);
+      const probe = new Image();
+      probe.onload = () => {
+        if (!el.isConnected || el._pictureGeneration !== generation) { URL.revokeObjectURL(next); return; }
+        if (el._pictureUrl) URL.revokeObjectURL(el._pictureUrl);
+        el._pictureUrl = next;
+        img.src = next;
+        el.dataset.pictureIndex = String(index);
+        picturePositions.set(btn.song_id, index);
+      };
+      probe.onerror = () => URL.revokeObjectURL(next);
+      probe.src = next;
+    }).catch(() => {});
+  }
+
   // --- board render ---
   // T4.5 arrange mode: while a grown-up is moving the songs around, the tiles
   // are furniture, not doors. board-arrange.js owns the flag; it is checked
@@ -747,8 +772,12 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
         render();
         return;
       }
-      // the HERO (dad r5): no-op while its song plays (she's looking at the
-      // art), resume after Stop, fresh start only from silence.
+      // One completed dwell advances a still while the audio keeps its place.
+      // After Stop/end the existing resume/replay action remains available.
+      if (music.playingId() === btn.song_id && (!music.isPlaying || music.isPlaying())) {
+        const current = Number(el.dataset.pictureIndex || 0);
+        showPicture(btn, el, (current + 1) % 10);
+      }
       music.heroTap(btn);
       return;
     }
@@ -809,6 +838,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     area.style.padding = CONFIG.V_PAD + "px " + CONFIG.SIDE_PAD + "px";
 
     const fits = [];
+    for (const el of songEls.values()) if (el._pictureUrl) URL.revokeObjectURL(el._pictureUrl);
     songEls = new Map();
     movieEls = new Map();
     for (let i = 0; i < slots.length; i++) {
@@ -838,6 +868,8 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
       if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
         movieEls.set(launchKey(btn), el);
       place(el, rs, cs);
+      if (music && btn.type === "song" && btn.load == null)
+        showPicture(btn, el, picturePositions.get(btn.song_id) || 0);
       fits.push(fit);
     }
     // second pass: labels are only measurable once they are in the document.

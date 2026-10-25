@@ -474,3 +474,7 @@ body{background:var(--paper); color:var(--ink);
 .edit-btn{border-radius:14px; min-width:150px}
 .edit-btn.primary{background:var(--teal-deep, #0B4E58); border-color:var(--teal-deep, #0B4E58); color:#FFFFFF}
 .edit-card button[disabled]{opacity:.55; cursor:default}
+
+/* Parent review stays inside the pointer-only sheet. */
+.song-pictures{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;max-height:40vh;overflow:auto}
+.song-pictures img{width:100%;height:auto;object-fit:contain}

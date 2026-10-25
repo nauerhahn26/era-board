@@ -113,7 +113,7 @@ test("songs board: the strip rides in the bar, and the doors keep the bar's only
     // 9/14: 🔒 joined them (board-lock.test.mjs owns what it DOES). What this
     // suite keeps asserting about it is what it is NOT — no .dwell, no
     // data-dwell-* — two lines up.
-    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange", "🔒"], "the strip's three grown-up doors");
+    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange", "Pictures", "🔒"], "the strip's grown-up doors");
     assert.ok(bar.hPct <= 9.1, `bar is still a slim strip (was ${bar.hPct}% of the viewport)`);
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
@@ -492,7 +492,7 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
                                      clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
     await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
     assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
-    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange", "🔒"], "…and the real board's strip has its second door back");
+    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange", "Pictures", "🔒"], "…and the real board's strip has its second door back");
     // The board came up UNDER the sheet the grown-up is still holding (they
     // waited with it open while the hub downloaded). freezeBoard ran once, on
     // the splash, so the fresh tiles arrived wearing .dwell — live gaze targets

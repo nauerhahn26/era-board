@@ -121,7 +121,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
       const r = await fetch("/" + path);
       if (!r.ok) throw new Error("music " + r.status);
       const blob = await r.blob();
-      idbPut(db, path, { v, blob });
+      await idbPut(db, path, { v, blob });
       return blob;
     } catch {
       return hit && hit.blob ? hit.blob : null;
@@ -294,22 +294,26 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   // after this resolves the whole board survives a dead network. Fired after
   // first render; failures are silent (retried on the next board load).
   async function prefetch(buttons) {
-    const songs = (buttons || []).filter((b) => b && b.type === "song" && b.audio);
+    const songs = [...new Map((buttons || []).filter(b => b && b.type === "song" && b.audio)
+      .map(b => [b.song_id, b])).values()];
     for (const s of songs) {
       const blob = await getBlob(s.audio, s.v);
       if (blob) cachedCount++;
       if (s.image) { try { await fetch("/" + s.image); } catch {} }  // browser cache is enough for covers
     }
+    for (const s of songs) for (const picture of s.pictures || []) await getBlob(picture, 1);
     try { window.dispatchEvent(new CustomEvent("music:prefetched", { detail: { cached: cachedCount, total: songs.length } })); } catch {}
     return cachedCount;
   }
 
   const api = {
     play, stop, full, heroTap, prefetch,
+    pictureBlob: path => getBlob(path, 1),
     pause: pauseForTalk, resume: resumeFromTalk,
     onState: onState || null,   // renderer assigns; moves the .playing marker
     playingId: () => playing,
     isFull: () => playing != null && clipLimitMs == null,
+    isPlaying: () => playing != null && !audio.paused,
     cached: () => cachedCount,
     _audio: audio,   // test hook: playback state assertions
   };
