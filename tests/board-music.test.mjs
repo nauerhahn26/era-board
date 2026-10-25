@@ -14,7 +14,7 @@ import { chromium } from "playwright";
 const BASE = "http://localhost:8377/board/?recipe=songs";
 const CLIP_MS = 1500;   // test override; fixture songs run ~3s
 
-async function makePage(browser) {
+async function makePage(browser, pictures = false) {
   const ctx = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
     hasTouch: true,
@@ -27,6 +27,17 @@ async function makePage(browser) {
   });
   await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
   await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+  if (pictures) {
+    await ctx.route("**/recipes/songs.json", async route => {
+      const response = await route.fetch();
+      const recipe = await response.json();
+      const hero = recipe.boards.find(b => b.id === "song-test-song-1").buttons.find(b => b.type === "song");
+      hero.pictures = Array.from({ length: 10 }, (_, i) => "music/test-song-1-frame-0123456789abcdef-" + String(i).padStart(2, "0") + ".jpg");
+      await route.fulfill({ response, json: recipe });
+    });
+    await ctx.route("**/music/*-frame-*.jpg", route => route.fulfill({ status: 200, contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6o4sAAAAASUVORK5CYII=", "base64") }));
+  }
   await ctx.addInitScript((clip) => {
     window.__testHooks = true;   // arm the Speech spy in board.js
     window.__musicTest = { clipMs: clip };
@@ -76,7 +87,7 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     const hero = page.locator(".tile.type-song");
     assert.equal(await hero.count(), 1, "one hero tile");
     const hb = await hero.boundingBox();
-    assert.ok(hb.width > 1920 * 0.4, `hero spans the left half (w=${Math.round(hb.width)})`);
+    assert.ok(hb.width > 1920 * 0.7, `hero spans three quarters (w=${Math.round(hb.width)})`);
     assert.ok(hb.height > 500, `hero is tall (h=${Math.round(hb.height)})`);
     const backTile = page.locator(".tile.type-back");
     assert.equal(await backTile.evaluate((el) => el.querySelector(".tile-glyph").textContent), "←",
@@ -89,7 +100,8 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(await page.locator(".tile.type-full").count(), 1, "Full song present");
     assert.ok((await page.locator(".tile.type-full img.tile-img").getAttribute("src")).includes("/symbol/music"),
       "Full song wears the music pictogram");
-    assert.equal(await page.locator(".cell.rest").count(), 3, "black rest column for her eyes");
+    assert.equal(await page.locator(".cell.rest").count(), 0, "song page has no black rest cells");
+    assert.ok((await backTile.boundingBox()).x >= hb.x + hb.width, "controls occupy the far-right column");
     const log1 = await page.evaluate(() => window.__speechLog.slice());
     assert.ok(log1.some((e) => e.call === "stop"), "barge-in: Speech.stop fired");
     assert.ok(!log1.some((e) => e.call === "say"), "song pick is silent (music is the response)");
@@ -247,5 +259,58 @@ test("outfit board is untouched: no Music player, no song tiles", async () => {
     await page.waitForFunction(() => window.Board, null, { timeout: 8000 });
     assert.equal(await page.evaluate(() => !!window.Music), false, "no player on the outfit board");
     assert.equal(await page.locator(".tile.type-song").count(), 0);
+  } finally { await browser.close(); }
+});
+
+
+test("song pictures: ten frames cycle without restarting music, work offline, and can be reviewed by a parent", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page, musicEvents } = await makePage(browser, true);
+    await page.locator(".tile.type-song").first().click();
+    await waitPlaying(page, "test-song-1");
+    await page.evaluate(() => { window.Music._audio.playbackRate = 0.1; });
+    const hero = page.locator(".tile.type-song");
+    await page.waitForFunction(() => document.querySelector(".tile.type-song").dataset.pictureIndex === "0");
+    await page.locator(".tile.type-full").click();
+    const before = await audioState(page), events = musicEvents.length;
+    for (let i = 1; i < 10; i++) {
+      await hero.click();
+      await page.waitForFunction(index => document.querySelector(".tile.type-song").dataset.pictureIndex === String(index), i);
+    }
+    const after = await audioState(page);
+    assert.equal(after.paused, false);
+    assert.ok(after.t >= before.t, "pictures never rewind audio");
+    assert.equal(musicEvents.length, events, "picture changes emit no playback events");
+    assert.equal(await page.evaluate(() => window.Music.isFull()), true, "full-song mode preserved");
+    await page.waitForFunction(() => window.__musicCached !== null);
+    await ctx.setOffline(true);
+    await hero.click();
+    await page.waitForFunction(() => document.querySelector(".tile.type-song").dataset.pictureIndex === "0");
+    for (let i = 1; i < 10; i++) {
+      await hero.click();
+      await page.waitForFunction(index => document.querySelector(".tile.type-song").dataset.pictureIndex === String(index), i);
+    }
+    await ctx.setOffline(false);
+    // A parked gaze advances once; a new look after moving re-arms it.
+    await page.mouse.move(5, 5);
+    await hero.evaluate(el => { el.dataset.dwellMs = "180"; });
+    const box = await hero.boundingBox();
+    await page.waitForTimeout(600);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForFunction(() => document.querySelector(".tile.type-song").dataset.pictureIndex === "0");
+    await page.waitForTimeout(650);
+    assert.equal(await hero.getAttribute("data-picture-index"), "0", "stationary gaze does not spin through the set");
+    await page.mouse.move(5, 5);
+    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2);
+    await page.waitForFunction(() => document.querySelector(".tile.type-song").dataset.pictureIndex === "1");
+    await page.locator("#stripPictures").click();
+    assert.equal(await page.locator(".song-pictures img").count(), 10);
+    assert.equal(await page.locator("#partnerSheet .dwell").count(), 0, "review is touch only");
+    assert.equal(await page.locator(".tile.dwell").count(), 0, "covered tiles cannot activate through the review");
+    await page.locator("#sheetClose").click();
+    assert.equal(await page.locator(".tile.dwell").count(), 4);
+    await page.screenshot({ path: "/tmp/music-recruitment-song.png" });
+    await ctx.close();
   } finally { await browser.close(); }
 });

@@ -177,7 +177,16 @@ function watchAdd() {
       // nothing to reload for either.
       if (st.last.ok) {
         const here = st.last.mirrored !== false;
+        const pictures = {
+          ready: " Ten screened video pictures are ready. Use Pictures to review them.",
+          "needs-helper": " Its cover is ready. Set up the AI helper in Settings to choose video pictures.",
+          unavailable: " Its cover is ready; video pictures could not be fetched.",
+          "not-enough": " Its cover is ready; this video has fewer than ten different pictures.",
+          "needs-review": " Its cover is ready; the helper could not approve ten child-friendly pictures.",
+          "cover-only": " The song will use its cover picture.",
+        };
         say((st.last.title || "That song") + " is on the board."
+          + (pictures[st.last.pictureStatus] || "")
           + (here ? " Close this and it is there." : " The board will catch up in a few minutes."));
         // with the sheet up the reload waits for Close (see reloadBoard); with
         // it already gone the grown-up is looking at the board right now
@@ -562,6 +571,48 @@ function openSheet(kind) {
   return wrap;
 }
 
+// Touch-only review of the current song, with a way to return to cover art.
+function openPictures() {
+  const buttons = window.Board && window.Board.session.current && window.Board.session.current.buttons || [];
+  const song = buttons.find(b => b.type === "song" && b.load == null);
+  const wrap = openSheet("pictures");
+  wrap.querySelector("h2").textContent = "Song pictures";
+  const hint = wrap.querySelector(".sheet-hint");
+  hint.textContent = song ? "Review the pictures for “" + song.label + "”. Looking at the song image advances one picture while music plays."
+    : "Open a song first, then choose Pictures to get or review its video pictures.";
+  if (!song || wrap.querySelector(".song-pictures")) return;
+  const gallery = document.createElement("div");
+  gallery.className = "song-pictures";
+  for (const [i, picture] of (song.pictures || []).entries()) {
+    const img = document.createElement("img");
+    img.src = "/" + picture; img.alt = "Picture " + (i + 1);
+    gallery.appendChild(img);
+  }
+  hint.after(gallery);
+  const row = wrap.querySelector(".sheet-row");
+  for (const clear of [false, true]) {
+    const button = document.createElement("button");
+    button.className = "sheet-btn"; button.type = "button";
+    button.textContent = clear ? "Use cover only" : "Get video pictures";
+    button.addEventListener("click", async () => {
+      if (inFlight) { say("A song is still being prepared. Try again when it finishes."); return; }
+      button.disabled = true;
+      try {
+        const status = await (await fetch("/music/add/status", { cache: "no-store" })).json();
+        seenWhen = status.last ? status.last.when : null;
+        const res = await fetch("/music/pictures", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: song.song_id, clear }) });
+        const out = await res.json();
+        if (!res.ok) { say(out.message || "Could not prepare pictures. Try again."); return; }
+        say("Preparing pictures. The music stays available.");
+        watchAdd();
+      } catch { say("Could not reach the hub. Try again."); }
+      finally { button.disabled = false; }
+    });
+    row.prepend(button);
+  }
+}
+
 // mountPartnerStrip({bar, recipe, arrange, settings, music}) -> the strip, or
 // null on a board that has none. The bar is era-core's shared .msgbar
 // (lib/doorbar.js, 9/17); the strip sits at the RIGHT end, right-anchored by
@@ -591,6 +642,11 @@ export function mountPartnerStrip({ bar, recipe, arrange = true, settings = null
   const arrangeBtn = arrange ? mk("stripArrange", "⇅ Arrange") : null;
   strip.append(addBtn);
   if (arrangeBtn) strip.append(arrangeBtn);
+  if (kind === "songs" && arrange) {
+    const picturesBtn = mk("stripPictures", "Pictures");
+    picturesBtn.addEventListener("click", openPictures);
+    strip.append(picturesBtn);
+  }
   bar.appendChild(strip);
   // 🔒 last, at the far end: locking is the rarest of the three and the one a
   // grown-up reaches for without looking, so it gets the corner.
