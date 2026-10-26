@@ -162,8 +162,8 @@ test("tapping a nav door is SILENT; the bar carries the two doors and nothing el
     // the DOM on every board and only SHOWS where /settings says
     // pauseGoes:"tdsnap", so it is here even on this engine-less test box.
     assert.ok(bar.kids.filter((k) => k === "partnerStrip").length <= 1, "at most one partner strip");
-    assert.deepEqual(bar.kids.filter((k) => k !== "partnerStrip"), ["barDoor", "barTalk"],
-                     "the two doors are the bar's only children besides the partner strip");
+    assert.deepEqual(bar.kids.filter((k) => k !== "partnerStrip"), ["barDoor", "barTalk", "stripLock"],
+                     "the two doors and shared adult lock are the only children besides the partner strip");
     assert.equal(bar.kids.includes("partnerStrip"), false, "her outfit board carries no partner strip");
     assert.deepEqual(bar.dwell, ["barDoor", "barTalk"], "the two doors are the bar's only dwell targets");
     // "the header is still too big" — the strip may not exceed 9% of the screen

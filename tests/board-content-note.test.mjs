@@ -71,7 +71,8 @@ test("the book note follows the build and ends as the tap to the review page", a
     assert.equal(await note.isVisible(), false, "no books building: no footer");
     // AMENDED 9/17 (dad): two doors — 🚪 and 💬 — and nothing else. 💬 is in the
     // DOM on every board, hidden until /settings says pauseGoes:"tdsnap".
-    assert.equal(await page.locator(".msgbar > *").count(), 2, "the bar carries the two doors and nothing else");
+    assert.equal(await page.locator(".msgbar > *").count(), 3, "the bar carries the two doors and shared adult lock");
+    assert.equal(await page.locator("#stripLock").evaluate(el => el.matches("button[data-app-lock-ui]") && !el.classList.contains("dwell")), true, "adult lock is not a gaze target");
     assert.equal(await page.evaluate(() => document.getElementById("contentNote").classList.contains("dwell")),
       false, "the book note is never a gaze target");
 

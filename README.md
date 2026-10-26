@@ -37,5 +37,4 @@ both worktrees using `ERA_WT_SUFFIX=--wt-music-player-ux-recruitment` and see
 The shared door bar now offers an independent app lock using era-core’s
 controller and adult passcode UI. Locking stops activity, preserves work and
 keeps exit and communication doors available. Music, Movies, Clothing and This week use separate lock IDs. The old combined
-media lock migrates without changing its expiry. Implementation awaits testing
-and has not been released.
+media lock migrates without changing its expiry. The hub’s app-lock plan records validation and release status.

@@ -162,7 +162,7 @@ async function floors(page, tag) {
     const off = rects.filter(({ r }) => r.left < -0.5 || r.top < -0.5 || r.right > vw + 0.5 || r.bottom > vh + 0.5).map((x) => x.n);
     const bar = document.querySelector(".msgbar");
     const barExtras = bar ? [...bar.children].map((el) => el.id || String(el.className))
-      .filter((n) => n !== "barDoor" && n !== "barTalk") : ["NO BAR"];
+      .filter((n) => n !== "barDoor" && n !== "barTalk" && n !== "stripLock") : ["NO BAR"];
     const tiles = [...document.querySelectorAll(".board-area .tile")].map((el) => {
       const r = el.getBoundingClientRect(); return { n: el.getAttribute("aria-label"), w: Math.round(r.width), h: Math.round(r.height) };
     });
@@ -173,7 +173,8 @@ async function floors(page, tag) {
   assert.deepEqual(m.small, [], `${tag}: every .dwell >= 90 px`);
   assert.ok(m.minGap >= GAP_FLOOR - 0.5, `${tag}: min gap ${m.minGap} >= ${GAP_FLOOR}`);
   assert.deepEqual(m.off, [], `${tag}: nothing offscreen`);
-  assert.deepEqual(m.barExtras, [], `${tag}: the bar holds only the doors`);
+  assert.deepEqual(m.barExtras, [], `${tag}: only doors and the shared adult lock are in the bar`);
+  assert.equal(await page.locator("#stripLock").evaluate(el => el.matches("button[data-app-lock-ui]") && !el.classList.contains("dwell")), true, "lock remains touch-only");
   assert.equal(m.hscroll, false, `${tag}: no horizontal scroll`);
   return m;
 }
