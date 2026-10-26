@@ -522,12 +522,13 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   // board never rewrites its URL (?recipe= / ?board= are read once at boot), so
   // mount-time and click-time are the same string — and click-time cannot drift.
   const bar = mountDoorBar(mount, {
+    onLock: () => { sp.stop && sp.stop(); if (music) music.stop(); },
     onLeave: () => { sp.stop && sp.stop(); if (music) music.stop(); },
     // she is going to TALK: go quiet and keep the place. NOT music.stop() —
     // stop() forgets the clip/full mode and posts a "stop" event; pause() holds
     // the element exactly where it is so resume() is the same second.
     onPause: () => { sp.stop && sp.stop(); if (music) music.pause(); },
-    onResume: () => { if (music) music.resume(); },
+    onResume: () => { if (music && !isLocked()) music.resume(); },
   });
   const sizeBar = bar.sizeBar;
   bar.setDwell(contentDwellMs);
@@ -615,10 +616,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   // footers' CSS ladder cannot reach it (it precedes two of them in the DOM,
   // and a fixed rung would not clear a wrapped footer anyway — #ttsWarn is two
   // lines at 52vw), so it measures: 6px above the highest footer showing.
-  // #lockWarn stands here too (9/14): it has no timer either, so a launch
-  // warning has to lift above a lock banner the same way it lifts above the
-  // no-sound one. board-lock.js keeps its own copy of the line above it.
-  const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show, #lockWarn.show";
+  const STANDING_FOOTERS = "#ttsWarn.show, #netWarn.show, #wardrobeNote.show, #contentNote.show";
   function footerClearance() {
     let top = window.innerHeight;
     for (const el of document.querySelectorAll(STANDING_FOOTERS)) {
@@ -644,6 +642,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   const LAUNCH_DEADLINE_MS = 4000;
 
   function launchMovie(btn, el) {
+    if (isLocked()) return;
     const body = { url: btn.url, watch: true, titleId: btn.titleId };
     if (btn.episode) body.episode = btn.episode;
     const nx = nextEpisodeOf(btn);
@@ -673,6 +672,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   // still appearing and the launch fired four times in four seconds.) The tile
   // leaves the gaze's reach first — belt and braces, the page is going.
   function leaveTo(href, el) {
+    if (isLocked()) return;
     if (el) el.setAttribute("data-dwell-disabled", "");
     location.assign(href);
   }
@@ -736,19 +736,11 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   const isPageDoor = (btn) => PAGE_DOORS.has((btn.type || "").toLowerCase()) && btn.load != null;
 
   function onTile(btn, el) {
+    if (isLocked()) return;
     const type = (btn.type || "").toLowerCase();
     if (arranging && !isPageDoor(btn)) return;   // a drag is not a pick
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
-    // The media lock (dad 9/14), belt and braces. board-lock.js already took
-    // .dwell off these tiles, so a GAZE cannot reach them — but a finger still
-    // lands a click on any button, and the boy poking the tablet is the reason
-    // the lock exists. Silent: a refusal that says something is a refusal worth
-    // pressing again. Nav, `show`, the door and her outfit tiles are untouched —
-    // locked means "reachable but inert", never "frozen".
-    if (isLocked() &&
-        (type === "song" || type === "full" || type === "stop" || type === "video" ||
-         LAUNCH_TYPES.has(type))) return;
     // Movies Board (spec 8/29 §5): a show tile is a DOOR to its show board
     // (episode picker) — silent nav, no launch, no event. movie/episode tiles
     // LAUNCH the streaming app via ERAgaze; the board itself never plays video.

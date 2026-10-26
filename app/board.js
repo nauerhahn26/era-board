@@ -192,6 +192,7 @@ function showSplash(app) {
   // /settings has already landed by the time boot() shows the splash, so the
   // real dwell and the real pauseGoes go on right here.
   const door = mountDoorBar(app, {
+    onLock: () => speech.stop && speech.stop(),
     onLeave: () => speech.stop && speech.stop(),
     onPause: () => speech.stop && speech.stop(),
   });

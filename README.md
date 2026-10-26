@@ -31,3 +31,11 @@ cached for offline use. The touch-only Pictures panel lets a parent review or
 refresh a set, choose a separate video for its pictures, or use cover art. The hub owns capture and screening; coordinate
 both worktrees using `ERA_WT_SUFFIX=--wt-music-player-ux-recruitment` and see
 `era-hub/docs/specs/2026-10-25-music-player-ux-recruitment.md`.
+
+## App locks
+
+The shared door bar now offers an independent app lock using era-core’s
+controller and adult passcode UI. Locking stops activity, preserves work and
+keeps exit and communication doors available. Music, Movies, Clothing and This week use separate lock IDs. The old combined
+media lock migrates without changing its expiry. Implementation awaits testing
+and has not been released.

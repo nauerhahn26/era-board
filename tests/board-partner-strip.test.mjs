@@ -135,7 +135,7 @@ test("a gaze parked on the strip activates nothing", async () => {
   } finally { await browser.close(); }
 });
 
-test("movies board gets the strip; the outfit board's bar still carries the doors alone", async () => {
+test("movies board gets the strip; Clothing also has a shared lock control", async () => {
   const browser = await chromium.launch();
   try {
     const movies = await open(browser, "movies");
@@ -146,7 +146,7 @@ test("movies board gets the strip; the outfit board's bar still carries the door
 
     const today = await open(browser, "");
     const tBar = await barShape(today.page);
-    assert.deepEqual(tBar.kids, ["barDoor", "barTalk"], "her outfit board is untouched: the two doors and nothing else");
+    assert.deepEqual(tBar.kids, ["barDoor", "barTalk", "stripLock"], "Clothing has the two doors and its shared adult lock");
     assert.equal(tBar.strip, false, "no strip on the board she uses alone");
     await today.ctx.close();
   } finally { await browser.close(); }
