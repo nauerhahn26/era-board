@@ -1,28 +1,30 @@
 // T1.1 — board-model.js unit tests (pure logic, no DOM). node --test.
-// Drives the REAL served recipe: server serves the NEWEST of the two recipe
-// paths by mtime; we mirror that here so we test exactly what she gets.
+// Owns a synthetic recipe. Model behavior must not depend on a live wardrobe.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-
-import { loadRecipe, createSession } from "../public/board/board-model.js";
-
-const DATA = process.env.ERA_DATA_DIR ||
-  fileURLToPath(new URL("../../era-family/data", import.meta.url));
-const RECIPE_PATHS = [
-  DATA + "/recipes/today.json",
-];
-function newestRecipe() {
-  let best = null;
-  for (const p of RECIPE_PATHS) {
-    try { const st = fs.statSync(p); if (!best || st.mtimeMs > best.st.mtimeMs) best = { p, st }; }
-    catch { /* ignore */ }
-  }
-  if (!best) throw new Error("no recipe file found");
-  return JSON.parse(fs.readFileSync(best.p, "utf8"));
-}
-const RECIPE = newestRecipe();
+const source = [new URL('../app/board-model.js', import.meta.url),
+  new URL('../public/board/board-model.js', import.meta.url)].find(file => fs.existsSync(file));
+assert.ok(source, 'selected board model source is available');
+const { loadRecipe, createSession } = await import(source.href);
+const RECIPE = {
+  root: 'today',
+  boards: [
+    { id: 'today', buttons: [
+      { type: 'control', label: 'Weather', say: 'Today it is warm, about 21 degrees.' },
+      { type: 'outfit', label: 'Tee + Shorts', say: 'Tee and Shorts', load: 'confirm_0', say_on_load: true },
+      { type: 'nav', label: 'Full wardrobe', load: 'build' },
+    ] },
+    { id: 'confirm_0', buttons: [
+      { type: 'outfit', label: 'Tee + Shorts', say: 'Tee and Shorts' },
+      { type: 'yes', label: 'Yes', say: 'Yes' },
+      { type: 'back', label: 'Back', load: 'today' },
+    ] },
+    { id: 'today_2', buttons: [] },
+    { id: 'build', buttons: [{ label: 'Tops', load: 'cat_top' }] },
+    { id: 'cat_top', buttons: [{ type: 'word', label: 'Tee' }] },
+  ],
+};
 
 test("loadRecipe: normalizes root, boards map, and button defaults", () => {
   const m = loadRecipe(RECIPE);
@@ -33,16 +35,15 @@ test("loadRecipe: normalizes root, boards map, and button defaults", () => {
 
   // say fallback = label; bar defaults false; type preserved.
   const today = m.boards.get("today");
-  // weather tile: find by its say SHAPE, never by today's band (warm/hot/cool vary daily)
+  // Explicit speech is preserved independently of the displayed label.
   const weather = today.buttons.find(b => b.type === "control" && /degrees/.test(b.say || ""));
-  // live recipe: exact temp/band vary by day — assert shape, not weather
   assert.match(weather.say, /^Today it is \w+, about -?\d+ degrees\.$/, "explicit say kept");
   assert.notEqual(weather.say, weather.label, "say is not the label fallback");
   // say-fallback: assert on a button that never carries an explicit say
-  // ("Build my own" is on every today page); outfit tiles ALWAYS have an
+  // (the wardrobe door in this fixture); outfit tiles carry an
   // explicit say and, since the variety rework, page 1 can lead with a
   // top+bottom pair whose say ("A and B") differs from its label ("A + b").
-  const build = today.buttons.find(b => b.label === "Build my own");
+  const build = today.buttons.find(b => b.label === "Full wardrobe");
   assert.equal(build.say, build.label, "say falls back to label");
   const outfit = today.buttons.find(b => b.type === "outfit");
   assert.equal(outfit.bar, false, "bar defaults false on outfit buttons");

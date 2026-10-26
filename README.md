@@ -9,6 +9,14 @@ separate module.
 
 License: MPL-2.0.
 
+Model tests own a synthetic recipe and run directly with
+`node --test tests/board-model.test.mjs`. Standalone route tests require
+`ERA_HUB_SRC` naming the intended hub checkout; the gate supplies this path.
+They create temporary data and a local symbol provider instead of reading
+private wardrobes or reaching a public service. For manual verification,
+`ERA_BOARD_ROUTE_PORT` can select a free approved manual test port; the suite
+otherwise uses its dedicated port and refuses an existing listener.
+
 Clothing layout (2026-10-17): the hub's forecast spans the center pair and
 retains ordinary speaking-control behavior, with a quiet sage background and
 dark ink. `app/wardrobe.svg` is the Full wardrobe door's cupboard pictogram.
