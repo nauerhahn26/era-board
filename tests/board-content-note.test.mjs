@@ -100,7 +100,7 @@ test("the book note follows the build and ends as the tap to the review page", a
     assert.equal(href, "/book-review/?slug=tabby-mctat", "flagged book links to its review page");
     assert.equal(await page.evaluate(() => document.querySelectorAll("#contentNote .dwell").length), 0,
       "the review link is touch-only");
-    assert.equal(await page.locator(".msgbar > *").count(), 2, "still nothing added to the bar");
+    assert.equal(await page.locator(".msgbar > *").count(), 3, "the bar still contains only doors and the adult lock");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
