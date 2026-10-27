@@ -1,3 +1,4 @@
+import { getAppLock } from "../lib/app-lock.js";
 // music-player.js — Songs Board playback engine (spec 8/24).
 // One persistent Audio element (Book Reader pattern): one pick = one song,
 // silence at the end — no queue, no autoplay-next, ever. Cache-first via
@@ -172,6 +173,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   }
 
   async function play(btn, { full = false } = {}) {
+    if (getAppLock()?.isLocked()) return;
     // btn: { song_id, audio: "music/<file>", v, clip_ms }
     const g = ++gen;
     try { audio.pause(); } catch {}
@@ -182,7 +184,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     state(btn.song_id);
     postEvent(btn.song_id, full ? "full" : "play");
     const blob = await getBlob(btn.audio, btn.v);
-    if (g !== gen) return;             // she picked something newer meanwhile
+    if (g !== gen || getAppLock()?.isLocked()) return;             // she picked something newer meanwhile
     releaseUrl();
     if (blob) { objectUrl = URL.createObjectURL(blob); audio.src = objectUrl; }
     else { audio.src = "/" + btn.audio; }   // last resort: straight stream
@@ -197,6 +199,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
   // "Full song": if this song's clip is ALREADY playing, authorize the rest in
   // place (no restart — dad 8/24); otherwise start it from the top, uncapped.
   function full(btn) {
+    if (getAppLock()?.isLocked()) return;
     if (playing === btn.song_id) {
       if (clipLimitMs == null) return;   // already in full mode: no-op
       clipLimitMs = null;
@@ -264,6 +267,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     // one that is on, and its tile keeps the ring she picked it by.
   }
   function resumeFromTalk() {
+    if (getAppLock()?.isLocked()) return;
     if (!pausedByBar) return;                      // a visible that was never a pause
     pausedByBar = false;
     if (playing == null) return;                   // it ended or was stopped meanwhile

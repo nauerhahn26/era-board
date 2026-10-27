@@ -156,7 +156,7 @@ function MEASURE(C) {
   const barEl = document.querySelector(".msgbar");
   const barPct = barEl ? +((barEl.getBoundingClientRect().height / vh) * 100).toFixed(1) : null;
   const barExtras = barEl ? [...barEl.children].map((el) => el.id || String(el.className))
-                                               .filter((n) => !BAR_DOORS.includes(n) && n !== "partnerStrip") : [];
+                                               .filter((n) => !BAR_DOORS.includes(n) && n !== "partnerStrip" && n !== "stripLock") : [];
   const barStrips = barEl ? barEl.querySelectorAll("#partnerStrip").length : 0;
   const barDwellExtras = barEl ? [...barEl.querySelectorAll(".dwell")].map(lbl).filter((n) => !BAR_DOORS.includes(n)) : [];
   // BIG PICTURES (dad 9/2 "change bottoms image for bottoms is too small"):

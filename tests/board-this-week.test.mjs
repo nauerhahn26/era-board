@@ -162,7 +162,7 @@ async function floors(page, tag) {
     const off = rects.filter(({ r }) => r.left < -0.5 || r.top < -0.5 || r.right > vw + 0.5 || r.bottom > vh + 0.5).map((x) => x.n);
     const bar = document.querySelector(".msgbar");
     const barExtras = bar ? [...bar.children].map((el) => el.id || String(el.className))
-      .filter((n) => n !== "barDoor" && n !== "barTalk") : ["NO BAR"];
+      .filter((n) => n !== "barDoor" && n !== "barTalk" && n !== "stripLock") : ["NO BAR"];
     const tiles = [...document.querySelectorAll(".board-area .tile")].map((el) => {
       const r = el.getBoundingClientRect(); return { n: el.getAttribute("aria-label"), w: Math.round(r.width), h: Math.round(r.height) };
     });
@@ -173,7 +173,8 @@ async function floors(page, tag) {
   assert.deepEqual(m.small, [], `${tag}: every .dwell >= 90 px`);
   assert.ok(m.minGap >= GAP_FLOOR - 0.5, `${tag}: min gap ${m.minGap} >= ${GAP_FLOOR}`);
   assert.deepEqual(m.off, [], `${tag}: nothing offscreen`);
-  assert.deepEqual(m.barExtras, [], `${tag}: the bar holds only the doors`);
+  assert.deepEqual(m.barExtras, [], `${tag}: only doors and the shared adult lock are in the bar`);
+  assert.equal(await page.locator("#stripLock").evaluate(el => el.matches("button[data-app-lock-ui]") && !el.classList.contains("dwell")), true, "lock remains touch-only");
   assert.equal(m.hscroll, false, `${tag}: no horizontal scroll`);
   return m;
 }
@@ -309,31 +310,22 @@ test("this week: a link off this hub, or a forged video, is painted but inert", 
   } finally { await browser.close(); }
 });
 
-test("this week: the media lock takes the video, not the Play door", async () => {
+test("this week: its app lock blocks videos and Play while leaving the exit available", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page, launches, logs, navs } = await makePage(browser, { lock: { until: 0 } });
     await ready(page);
-    // the Play door is not media: still a gaze target under the lock
-    assert.ok(await page.locator(".board-area .tile.type-link").evaluate((el) =>
-      el.classList.contains("dwell") && !el.hasAttribute("data-dwell-disabled")), "Play is not locked");
-    await page.evaluate(() => window.Board.show("watch"));
-    const vid = page.locator(".tile.type-video");
-    assert.equal(await vid.evaluate((el) => el.classList.contains("dwell")), false,
-      "a locked video is no gaze target");
-    await vid.click();                         // a finger still lands a click
-    await page.waitForTimeout(400);
-    assert.equal(navs.length, 0, "locked: the video goes nowhere");
-    assert.equal(launches.length, 0, "locked: nothing launched");
+    assert.equal(await page.locator('.app-lock-curtain').isVisible(), true);
+    const before = await onBoard(page);
+    await page.evaluate(() => document.querySelector('.board-area .tile.type-link').click());
+    assert.equal(await onBoard(page), before);
+    await page.evaluate(() => window.Board.show('watch'));
+    await page.evaluate(() => document.querySelector('.tile.type-video').click());
+    assert.equal(navs.length, 0, 'locked video and Play actions do not navigate');
+    assert.equal(launches.length, 0, 'locked video never launches');
     assert.deepEqual(twLogs(logs), []);
-    // the words are not media: "not here yet" still speaks
-    assert.ok(await page.locator('.tile.type-word:has-text("Shadow video 2")').evaluate((el) => el.classList.contains("dwell")));
-    // and the Play door still navigates under the lock
-    await page.locator(".tile.type-back").click();
-    assert.equal(await onBoard(page), "this-week");
-    await dwellOn(page, page.locator(".board-area .tile.type-link"));
-    await page.waitForURL(PLAY_URL, { timeout: 5000 });
-    assert.equal(navs.length, 1);
+    assert.equal(await page.locator('#barDoor').isVisible(), true);
+    assert.equal(await page.evaluate(() => window.AppLock.get('this-week').isLocked()), true);
     await ctx.close();
   } finally { await browser.close(); }
 });

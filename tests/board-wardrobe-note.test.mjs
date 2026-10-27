@@ -57,7 +57,8 @@ test("footer follows the wardrobe work and offers the see-them tap", async () =>
     // AMENDED 9/17 (dad): the bar carries TWO doors — 🚪 and 💬 — and nothing
     // else. 💬 is in the DOM on every board (hidden until /settings says
     // pauseGoes:"tdsnap"), so the count is two wherever it used to be one.
-    assert.equal(await page.locator(".msgbar > :not(#partnerStrip)").count(), 2, "the bar carries the two doors and nothing else");
+    assert.equal(await page.locator(".msgbar > :not(#partnerStrip)").count(), 3, "the bar carries the two doors and shared adult lock");
+    assert.equal(await page.locator("#stripLock").evaluate(el => el.matches("button[data-app-lock-ui]") && !el.classList.contains("dwell")), true, "adult lock is not a gaze target");
     assert.equal(await page.locator(".msgbar #partnerStrip").count(), 0, "no partner strip on her outfit board");
     assert.deepEqual(await page.locator(".msgbar .dwell").evaluateAll((els) => els.map((e) => e.id)),
                      ["barDoor", "barTalk"], "the two doors are the bar's only gaze targets");
