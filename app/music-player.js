@@ -7,8 +7,11 @@ import { getAppLock } from "../lib/app-lock.js";
 // (same reason as board.js's localStorage recipe stash, D40) — IDB blobs are
 // the offline layer. A song's cache entry is keyed by its recipe `v` (server
 // file mtime); re-ingesting a slug moves `v` and refreshes the blob.
-// Telemetry: fire-and-forget POST /music-event (play/stop/end) — usage
-// visibility for dad via the family pool; never blocks or queues.
+// Telemetry: fire-and-forget POST /music-event — usage visibility for dad via
+// the family pool, and since 2026-10-31 the pick scores that order the songs
+// board. play = a pick; full = Full song (fresh:true when it starts a pick
+// from silence); clip = the clip ran out; done = the song ended naturally;
+// stop = Stop or leaving. Never blocks or queues.
 
 const DB_NAME = "era-music";
 const STORE = "songs";
@@ -43,11 +46,11 @@ function idbPut(db, key, val) {
   });
 }
 
-function postEvent(songId, action) {
+function postEvent(songId, action, fresh) {
   try {
     fetch("/music-event", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songId, action }),
+      body: JSON.stringify(fresh ? { songId, action, fresh: true } : { songId, action }),
     }).catch(() => {});
   } catch { /* telemetry is nice-to-have, never load-bearing */ }
 }
@@ -147,7 +150,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     resume = null;
     clipEnded = null;
     state(null);
-    if (was) postEvent(was, "end");
+    if (was) postEvent(was, "done");     // the song itself ended: a full listen
   });
 
   // 40-second default clip (dad 8/24: scratch the itch at school, not the
@@ -162,7 +165,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
       clipEnded = was ? { id: was } : null;   // ...but Full song continues from here
       try { audio.pause(); } catch {}
       state(null);                       // clip over: silence, stay on the page
-      if (was) postEvent(was, "end");
+      if (was) postEvent(was, "clip");   // NOT "done": the song did not end
     }
   });
 
@@ -182,7 +185,7 @@ export function createMusicPlayer({ onState, volCap } = {}) {
     clipEnded = null;
     clipLimitMs = full ? null : clipOf(btn);
     state(btn.song_id);
-    postEvent(btn.song_id, full ? "full" : "play");
+    postEvent(btn.song_id, full ? "full" : "play", full);   // Full song from silence: a fresh pick
     const blob = await getBlob(btn.audio, btn.v);
     if (g !== gen || getAppLock()?.isLocked()) return;             // she picked something newer meanwhile
     releaseUrl();
