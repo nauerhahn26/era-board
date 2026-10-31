@@ -89,15 +89,26 @@ body{background:var(--paper); color:var(--ink);
 /* TMDB's terms: the credit rides with their art, in the hub's own wording. */
 .sheet-credit{margin-top:10px; font-size:13px; line-height:1.3; color:#4A6069}
 
-/* ---- the songs rail (spec 2026-10-31, the book shelf's shape): one grid
-   column wide, beside the 3x4 grid, its six tiles filling the grid's height.
-   board-render.js places it and sizes its rows; the gap is the grid's own. ---- */
+/* ---- the songs rail: THE BOOK READER'S SHELF RAIL (maintainer 10/31, "copy
+   book reader"). Every value below is copied from era-hub
+   public/reader/index.html — .dwell-button, .shelf-rail-tile.dwell-button,
+   .rail-icon, .shelf-rail-tile.is-current.dwell-button, .is-disabled — so the
+   two rails read as one. The label size is the reader rail's
+   clamp(0.95rem, 1.35vw, 1.45rem): a dad-approved exception to the 74px text
+   floor for the shelf rail (spec 2026-09-30-book-shelf-layout), mirrored here
+   on purpose; the grid's tiles keep the floor. board-render.js places the
+   column (clamp(120px, 13vw, 250px), 18px from the grid, 12px between tiles). */
 .rail{display:grid; min-height:0; min-width:0}
-/* the section she is in: coral (set inline from CONFIG.RAIL_CURRENT) with a
-   white inner ring, so it reads as lit and not as one more coloured tile */
-.tile.is-current{box-shadow:inset 0 0 0 6px #FFFFFF, 0 4px 16px rgba(23,39,46,.14)}
-/* Back on a section's page 1: there is nowhere to go, so it says so */
-.tile.dimmed{opacity:.35; cursor:default}
+.tile.rail-tile{min-height:0; padding:6px 10px; border:1px solid #d4ddd9; border-radius:16px;
+  background:#fff; color:#1f2b2c; box-shadow:0 4px 10px rgba(31, 43, 44, 0.06);
+  font-family:'Avenir Next', 'Trebuchet MS', sans-serif; font-weight:700;
+  font-size:clamp(0.95rem, 1.35vw, 1.45rem); line-height:1.15; text-align:center}
+.rail-tile .rail-label{display:flex; flex-direction:column; align-items:center; gap:4px}
+.rail-tile .rail-icon{font-size:1.25em; line-height:1}
+/* the section she is in, lit — the reader's coral */
+.tile.rail-tile.is-current{background:#de6e4b; border-color:#c75a39; color:#fff}
+/* Back on a section's page 1: there is nowhere to go, so it says so (.is-disabled) */
+.tile.rail-tile.dimmed{opacity:0.4; cursor:default}
 
 /* ---- board grid: fills the whole remaining area with wide rectangles ---- */
 .board-area{flex:1 1 auto; width:100%; display:grid;
