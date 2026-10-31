@@ -64,7 +64,9 @@ function onKey(e) { if (e.key === "Escape") closeSheet(); }
 // while arrange mode is on hands the board back exactly as arrange mode left it.
 const BAR_DOORS = new Set(["barDoor", "barTalk"]);
 function freezeBoard(except) {
-  frozen = [...document.querySelectorAll(".dwell")]
+  // A tile already asleep (the songs rail's dimmed Back on page 1) is not this
+  // sheet's to wake: thawing it would hand her gaze a door that goes nowhere.
+  frozen = [...document.querySelectorAll(".dwell:not([data-dwell-disabled])")]
     .filter((el) => !BAR_DOORS.has(el.id) && !except.contains(el));
   for (const el of frozen) {
     el.classList.remove("dwell");
@@ -499,8 +501,8 @@ function openSheet(kind) {
                                          : "https://…  or  ada twist";
     card.appendChild(input);
   } else {
-    // ⇅ Arrange on a board nobody owns arrange mode for. Today that is only
-    // the movies board: board-arrange.js claims the songs one (T4.5), and a
+    // ⇅ Arrange on a board nobody owns arrange mode for: the movies board
+    // (the songs board has none since 2026-10-31 — usage order), and a
     // film's place on the grid is not the same thing as its place in a list —
     // the recipe ranks the exploration tile in a flow of its own and fills its
     // cell last, so "the order the board shows" cannot be turned back into
@@ -578,9 +580,46 @@ function openPictures() {
   const wrap = openSheet("pictures");
   wrap.querySelector("h2").textContent = "Song pictures";
   const hint = wrap.querySelector(".sheet-hint");
-  hint.textContent = song ? "Review the pictures for “" + song.label + "”. Looking at the song image advances one picture while music plays."
+  hint.textContent = song ? "Choose the section for “" + song.label + "” and review its pictures. Looking at the song image advances one picture while music plays."
     : "Open a song first, then choose Pictures to get or review its video pictures.";
   if (!song || wrap.querySelector(".song-pictures")) return;
+  wrap.querySelector("h2").textContent = "This song";
+  // The song's section (spec 2026-10-31): Top hits, Disney or neither. Plain
+  // buttons, like everything on this sheet — a finger's, never her gaze's.
+  const sections = document.createElement("div");
+  sections.className = "song-category";   // not .sheet-row: the picture buttons look that one up
+  sections.setAttribute("role", "group");
+  sections.setAttribute("aria-label", "Section");
+  const choices = [["top-hits", "Top hits"], ["disney", "Disney"], [null, "Neither"]];
+  let current = song.category === "top-hits" || song.category === "disney" ? song.category : null;
+  const paint = () => {
+    for (const b of sections.querySelectorAll("button"))
+      b.setAttribute("aria-pressed", String((b.dataset.category || null) === current));
+  };
+  for (const [category, text] of choices) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "sheet-btn"; b.textContent = text;
+    if (category) b.dataset.category = category;
+    b.addEventListener("click", async () => {
+      if (inFlight) { say("A song is still being prepared. Try again when it finishes."); return; }
+      for (const x of sections.querySelectorAll("button")) x.disabled = true;
+      try {
+        const res = await fetch("/music/category", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: song.song_id, category }) });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok) { say(out.message || "Could not save that. Try again."); return; }
+        current = out.category || null;
+        song.category = current;
+        paint();
+        say(out.mirrored === false ? "Saved. This board will show it once the folder catches up."
+                                   : "Saved. The board shows it the next time Music opens.");
+      } catch { say("Could not reach the hub. Try again."); }
+      finally { for (const x of sections.querySelectorAll("button")) x.disabled = false; }
+    });
+    sections.appendChild(b);
+  }
+  paint();
+  hint.after(sections);
   const gallery = document.createElement("div");
   gallery.className = "song-pictures";
   for (const [i, picture] of (song.pictures || []).entries()) {
@@ -588,7 +627,7 @@ function openPictures() {
     img.src = "/" + picture; img.alt = "Picture " + (i + 1);
     gallery.appendChild(img);
   }
-  hint.after(gallery);
+  sections.after(gallery);
   const linkLabel = document.createElement("label");
   linkLabel.textContent = "Video link for pictures (optional)";
   const videoLink = document.createElement("input");
@@ -647,7 +686,9 @@ export function mountPartnerStrip({ bar, recipe, arrange = true, settings = null
     return b;                        // deliberately NO .dwell, NO data-dwell-*
   };
   const addBtn = mk("stripAdd", "+ Add");
-  const arrangeBtn = arrange ? mk("stripArrange", "⇅ Arrange") : null;
+  // ⇅ Arrange left the songs board on 2026-10-31: usage order replaced it
+  // (spec music-sections-and-usage-order). Movies keep theirs.
+  const arrangeBtn = arrange && kind === "movies" ? mk("stripArrange", "⇅ Arrange") : null;
   strip.append(addBtn);
   if (arrangeBtn) strip.append(arrangeBtn);
   if (kind === "songs" && arrange) {

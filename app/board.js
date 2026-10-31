@@ -7,7 +7,6 @@ import { mountBoard } from "./board-render.js";
 // the message bar is era-core's now (9/17) — one strip for all five apps.
 import { mountDoorBar } from "../lib/doorbar.js";
 import { mountPartnerStrip, refreezeIfOpen } from "./board-partner.js";
-import { mountArrange } from "./board-arrange.js";
 import { mountEditSheet } from "./board-edit.js";
 import { createMusicPlayer } from "./music-player.js";
 
@@ -329,6 +328,13 @@ function showSplash(app) {
   }, 3000);
 }
 
+// The songs recipe's ETag ends in an ORDER part (`~o<hash>`, era-hub
+// songsRecipe): a pick re-orders the sections, and the order is fixed when the
+// recipe is built — a board on screen must never reload for it, or tiles would
+// move under her gaze. The next open fetches afresh and gets the new order.
+// Everything before it (songs, pictures, a section a parent set) still counts.
+const contentTag = (etag) => String(etag || "").replace(/~o[0-9a-f]+"$/, '"');
+
 // Watch the server: banner while unreachable, reload when the recipe changed —
 // but only once she has been idle long enough. While offline or holding a
 // pending change we poll fast; healthy steady-state polls slow.
@@ -346,7 +352,7 @@ function startWatcher(state) {
       if (!res.ok) throw new Error("head " + res.status);
       if (state.offline) { state.offline = false; setNet(false); }
       const etag = res.headers.get("etag") || "";
-      if (etag && etag !== state.etag) pending = true;
+      if (etag && contentTag(etag) !== contentTag(state.etag)) pending = true;
       // ...and only while she can SEE it. Since 💬 PAUSE TO TALK (dad 9/17) the
       // board spends minutes minimized under TD Snap with her song paused
       // mid-verse, and a minimized page is idle by definition — no pointermove
@@ -356,7 +362,10 @@ function startWatcher(state) {
       // back a fresh board with no song. A page nobody is looking at never
       // reloads itself; `pending` keeps, and the next tick after she is back
       // (and still idle) lands it.
-      if (pending && idleFor() >= T.idleMs && document.visibilityState === "visible") {
+      // …and never under a playing song: a reload is a fresh board with no
+      // music, which is a stop she did not ask for.
+      if (pending && idleFor() >= T.idleMs && document.visibilityState === "visible" &&
+          !(window.Music && window.Music.isPlaying && window.Music.isPlaying())) {
         location.reload(); return;
       }
     } catch {
@@ -525,10 +534,6 @@ async function boot() {
   const partner = mountPartnerStrip({ bar: app.querySelector(".msgbar"), recipe: RECIPE_NAME,
                                       settings, music });
 
-  // "⇅ Arrange" (T4.5): the strip only announces the tap — this claims it and
-  // owns the mode where a finger moves the songs. On a board nobody arranges
-  // yet (movies, until T5.4) it mounts nothing and the strip says so.
-  mountArrange({ api, partner, recipe: RECIPE_NAME });
 
   // what-next deep link (movies spec §5): ?board=<id> opens the session on that
   // board — how ERAgaze reveals the picker on a show's "what next?" page after

@@ -27,8 +27,8 @@ body{background:var(--paper); color:var(--ink);
    their reasoning went with them. What stays below is everything that is about
    the BOARD's bar in particular: the partner strip that rides in it. */
 
-/* ---- partner strip (T4.4, dad's 9/4 amendment) — the grown-up's "+ Add" and
-   "⇅ Arrange" on the songs and movies boards, at the RIGHT end of the bar.
+/* ---- partner strip (T4.4, dad's 9/4 amendment) — the grown-up's "+ Add" (and
+   "Pictures" on songs, "⇅ Arrange" on movies), at the RIGHT end of the bar.
    Touch/click only: NOT .dwell, never a gaze target (board-partner.js gives it
    no dwell class and no dwell attributes, and the gates check).
    Deliberately quiet chrome — smaller and flatter than the doors, because this
@@ -60,7 +60,7 @@ body{background:var(--paper); color:var(--ink);
 .sheet-hint{margin:0 0 14px; font-size:19px; line-height:1.3}
 #sheetInput,#pictureVideoLink{width:100%; box-sizing:border-box; font-family:var(--font); font-size:22px;
             padding:10px 12px; border:2px solid var(--line, #B9C7CC); border-radius:10px}
-.sheet-row{display:flex; gap:12px; margin-top:14px}
+.sheet-row{display:flex; flex-wrap:wrap; gap:12px; margin-top:14px}
 .sheet-btn{flex:0 0 auto; border:none; border-radius:10px; padding:12px 20px; cursor:pointer;
            font-family:var(--font); font-size:20px; font-weight:700;
            background:#E3EAEC; color:var(--ink, #17272E)}
@@ -89,35 +89,15 @@ body{background:var(--paper); color:var(--ink);
 /* TMDB's terms: the credit rides with their art, in the hub's own wording. */
 .sheet-credit{margin-top:10px; font-size:13px; line-height:1.3; color:#4A6069}
 
-/* ---- arrange mode (T4.5): the songs stop being doors and become things to
-   move. The dashed teal edge is the whole affordance — a parent can see which
-   tiles a finger may pick up, and touch-action:none replaces what the .dwell
-   class used to give them (board-arrange.js takes that class away so dwell.js's
-   long-press rescue cannot click a song at the end of a drag). ---- */
-.board-area.arranging .tile{cursor:grab}
-/* teal, not white: a song tile IS a white photo plate, so a white dash on it is
-   an invisible affordance (seen in the T4.5 recording). */
-.board-area.arranging .tile[data-arrange-id]{touch-action:none;
-      outline:5px dashed var(--teal,#0F7C8A); outline-offset:-7px}
-.board-area.arranging .tile.dragging{cursor:grabbing; z-index:80; opacity:.88;
-      box-shadow:0 12px 30px rgba(23,39,46,.45)}
-.board-area.arranging .tile.drop-target{outline:8px solid var(--teal,#0F7C8A); outline-offset:-8px}
-
-/* the arrange pill: the wardrobe/book footer treatment, and pointer-events:none
-   so it can never swallow the end of a drag that finishes over it. */
-#arrangeNote{position:fixed; bottom:6px; left:50%; transform:translateX(-50%); max-width:70vw;
-      background:var(--teal-deep,#0B4E58); color:#fff; font-size:21px; line-height:1.25;
-      padding:8px 18px; border-radius:12px; z-index:80; font-family:var(--font);
-      text-align:center; pointer-events:none}
-/* it is the last strip added to the page, so it stacks on top of whichever of
-   the standing footers happen to be showing (the #contentNote ladder). */
-#ttsWarn.show ~ #arrangeNote,
-#wardrobeNote.show ~ #arrangeNote,
-#contentNote.show ~ #arrangeNote{bottom:60px}
-#ttsWarn.show ~ #wardrobeNote.show ~ #arrangeNote,
-#ttsWarn.show ~ #contentNote.show ~ #arrangeNote,
-#wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:114px}
-#ttsWarn.show ~ #wardrobeNote.show ~ #contentNote.show ~ #arrangeNote{bottom:168px}
+/* ---- the songs rail (spec 2026-10-31, the book shelf's shape): one grid
+   column wide, beside the 3x4 grid, its six tiles filling the grid's height.
+   board-render.js places it and sizes its rows; the gap is the grid's own. ---- */
+.rail{display:grid; min-height:0; min-width:0}
+/* the section she is in: coral (set inline from CONFIG.RAIL_CURRENT) with a
+   white inner ring, so it reads as lit and not as one more coloured tile */
+.tile.is-current{box-shadow:inset 0 0 0 6px #FFFFFF, 0 4px 16px rgba(23,39,46,.14)}
+/* Back on a section's page 1: there is nowhere to go, so it says so */
+.tile.dimmed{opacity:.35; cursor:default}
 
 /* ---- board grid: fills the whole remaining area with wide rectangles ---- */
 .board-area{flex:1 1 auto; width:100%; display:grid;
@@ -411,3 +391,7 @@ body{background:var(--paper); color:var(--ink);
 /* Parent review stays inside the pointer-only sheet. */
 .song-pictures{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;max-height:40vh;overflow:auto}
 .song-pictures img{width:100%;height:auto;object-fit:contain}
+
+/* the song sheet's section choice (spec 2026-10-31): the chosen one is filled */
+.song-category{display:flex; flex-wrap:wrap; gap:12px; margin:0 0 14px}
+.song-category .sheet-btn[aria-pressed="true"]{background:var(--teal-deep, #0B4E58); color:#FFFFFF}
