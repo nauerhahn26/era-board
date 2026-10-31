@@ -230,8 +230,10 @@ test("💬 mid-song: the music holds its place and the hub is told where she is"
   const browser = await chromium.launch();
   try {
     const { ctx, page, pauses, exits, errors } = await open(browser, { recipe: "songs" });
+    // the hub orders the songs (by use, then added time): read the first one off the page
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     await playedPast(page, 0.2);              // let the song get somewhere
     const before = await audioState(page);
     assert.equal(before.paused, false, "she is mid-song");
@@ -244,7 +246,7 @@ test("💬 mid-song: the music holds its place and the hub is told where she is"
     const held = await audioState(page);
     assert.ok(held.t >= before.t - 0.01, `the element kept its place (${before.t} -> ${held.t})`);
     assert.ok(held.t > 0.05, "and that place is not the beginning");
-    assert.equal(held.playing, "test-song-1",
+    assert.equal(held.playing, first,
                  "this is still the song that is on: a pause is not a stop, the marker stays");
     assert.equal(await page.locator(".tile.playing").count(), 1, "...and so does her ring on the tile");
 
@@ -261,8 +263,10 @@ test("she comes back: the same second plays on", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page, errors } = await open(browser, { recipe: "songs" });
+    // the hub orders the songs (by use, then added time): read the first one off the page
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     await playedPast(page, 0.2);
     const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
     await page.locator("#barTalk").click();
@@ -276,7 +280,7 @@ test("she comes back: the same second plays on", async () => {
                      "gaze arming is blocked for the settle window as the screen reappears");
     await page.waitForFunction(() => !window.Music._audio.paused, null, { timeout: 4000 });
     const back = await audioState(page);
-    assert.equal(back.playing, "test-song-1", "the same song");
+    assert.equal(back.playing, first, "the same song");
     assert.ok(back.t >= held.t - 0.01, `from where she left it (${held.t} -> ${back.t})`);
     assert.ok(back.t < held.t + 1.5, "not restarted from the top");
     assert.deepEqual(errors, [], "no page errors");
@@ -295,8 +299,9 @@ test("💬 while the song is still LOADING: it never starts under her talker", a
     // kiosk and the song plays at full volume under her TD Snap. This is the
     // one leg where being quiet has to outlast the load.
     const { ctx, page, pauses, exits, errors } = await open(browser, { recipe: "songs", musicDelayMs: 2500 });
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await page.waitForFunction(() => window.Music.playingId() === "test-song-1", null, { timeout: 4000 });
+    await page.waitForFunction((id) => window.Music.playingId() === id, first, { timeout: 4000 });
     assert.equal((await audioState(page)).t, 0, "nothing has sounded yet — the blob is still in flight");
 
     const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
@@ -310,7 +315,7 @@ test("💬 while the song is still LOADING: it never starts under her talker", a
     const after = await audioState(page);
     assert.equal(after.paused, true, "she is in TD Snap: the board stayed silent");
     assert.equal(after.t, 0, "and the song is still waiting at its first note");
-    assert.equal(after.playing, "test-song-1", "it is still HER pick — a pause is not a stop");
+    assert.equal(after.playing, first, "it is still HER pick — a pause is not a stop");
     assert.equal(pauses.length, 1, "one POST /kiosk/pause");
     assert.equal(exits.length, 0, "a pause the hub honoured never becomes an exit");
 
@@ -318,7 +323,7 @@ test("💬 while the song is still LOADING: it never starts under her talker", a
     await comeBack(page);
     await page.waitForFunction(() => !window.Music._audio.paused && window.Music._audio.currentTime > 0,
                                null, { timeout: 4000 });
-    assert.equal((await audioState(page)).playing, "test-song-1", "her song, once she is back to hear it");
+    assert.equal((await audioState(page)).playing, first, "her song, once she is back to hear it");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
@@ -334,8 +339,10 @@ test('💬 with no engine to answer ({action:"home"}): 💬 becomes the 🚪, an
     // same element, which is the only place those two run back to back.
     const { ctx, page, pauses, exits, errors } = await open(browser,
       { recipe: "songs", pauseAnswer: { action: "home" } });
+    // the hub orders the songs (by use, then added time): read the first one off the page
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     await playedPast(page, 0.2);
 
     const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
@@ -359,8 +366,10 @@ test("a visible that was never a pause changes nothing", async () => {
   const browser = await chromium.launch();
   try {
     const { ctx, page, errors } = await open(browser, { recipe: "songs" });
+    // the hub orders the songs (by use, then added time): read the first one off the page
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     // a partner alt-tabs away and back while the song is playing
     await comeBack(page);
     await page.waitForTimeout(200);

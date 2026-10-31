@@ -102,6 +102,9 @@ export const CONFIG = {
            link: "#FFFFFF" },  // This week's Play door: painted like the show doors beside it
   INK_DARK: "#17272E",
   INK_LIGHT: "#FFFFFF",
+  // the section she is in, lit on the songs rail — the book shelf's coral
+  // (lib/tokens.css --c-vowel), the colour the reader's rail lights its own with
+  RAIL_CURRENT: "#DE7B52",
 };
 
 // tiles whose ink should be dark (light backgrounds)
@@ -297,10 +300,23 @@ function makeTile(btn, w, h, dwellMs) {
   el.dataset.dwellMs = String(tileDwellMs(btn, type, dwellMs));
   el.setAttribute("aria-label", btn.label || "");
   el.dataset.dwellSay = btn.say != null ? btn.say : (btn.label || "");
+  if (type === "song" && btn.song_id) el.dataset.songId = btn.song_id;
+  // A tile the recipe says goes nowhere right now (the songs rail's Back on a
+  // section's page 1): dimmed, and out of the gaze's reach — no .dwell, and the
+  // data-dwell-disabled dwell.js reads — while a finger's tap is ignored in
+  // onTile. Without .dwell no sheet's freeze/thaw can ever wake it.
+  if (btn.disabled) {
+    el.classList.remove("dwell");
+    el.classList.add("dimmed");
+    el.setAttribute("data-dwell-disabled", "");
+    el.setAttribute("aria-disabled", "true");
+  }
+  if (btn.current) el.classList.add("is-current");
 
   // A forecast remains a speaking control, with a quiet sage background.
   const isWeather = btn.footnote != null;
-  const bg = isWeather ? "#CEDBD6" : (CONFIG.color[type] || CONFIG.color.control);
+  const bg = isWeather ? "#CEDBD6" : btn.current ? CONFIG.RAIL_CURRENT
+    : (CONFIG.color[type] || CONFIG.color.control);
   el.style.background = bg;
   el.style.color = (isWeather || LIGHT_BG.has(type)) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
 
@@ -449,6 +465,10 @@ function makeTile(btn, w, h, dwellMs) {
   };
   return { el, fit };
 }
+
+// .tile.icon's side padding in board.css — the room a text tile's label loses
+// on each side. Kept beside the stylesheet's own number, never a new size.
+const TEXT_TILE_SIDE_PAD = 12;
 
 // ---- board layout ----------------------------------------------------------
 
@@ -714,31 +734,12 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   }
 
   // --- board render ---
-  // T4.5 arrange mode: while a grown-up is moving the songs around, the tiles
-  // are furniture, not doors. board-arrange.js owns the flag; it is checked
-  // here rather than by unbinding the handler so a click that was already in
-  // flight when the mode opened cannot slip through.
-  //
-  // A PAGE TURN is not a pick either — but it is not a drag, and it has to
-  // keep working: a song added today lands at the END of the running order,
-  // i.e. on the LAST page, and a swap can only ever exchange two cells on the
-  // same page. Arrange mode used to swallow every tap, so "More" and "Back"
-  // were dead and page one was unreachable for a new song (review 9/5). Nav
-  // doors go through; board-arrange.js watches the grid and puts the new
-  // page's tiles straight back to sleep.
-  let arranging = false;
   let voicedOnLoad = false;   // see render(): a board's own say_on_load, once
-  // the songs/movies grids' page turns: "Back" is type:"back", "More" is the
-  // teal type:"control" (server.js songsRecipe). Deliberately its own short
-  // list, not "every door": arrange mode must let a page turn through and must
-  // NOT let a category or a show board open under a dragging finger.
-  const PAGE_DOORS = new Set(["back", "control", "more"]);
-  const isPageDoor = (btn) => PAGE_DOORS.has((btn.type || "").toLowerCase()) && btn.load != null;
 
   function onTile(btn, el) {
     if (isLocked()) return;
+    if (btn.disabled) return;                    // a dimmed rail Back: a finger's tap goes nowhere too
     const type = (btn.type || "").toLowerCase();
-    if (arranging && !isPageDoor(btn)) return;   // a drag is not a pick
     // barge-in: stop any speech FIRST, then act (every path stops before speaking).
     sp.stop && sp.stop();
     // Movies Board (spec 8/29 §5): a show tile is a DOOR to its show board
@@ -773,6 +774,15 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
       music.heroTap(btn);
       return;
     }
+    // A song page's Back (spec 2026-10-31) returns to the section page she
+    // came from — the page under it on the session's history — and only
+    // falls back to its `load` (the song's page in All) when the page was
+    // opened directly. Leaving the song page is stop, as ever.
+    if (type === "back" && btn.return && session.history.length) {
+      session.back();
+      if (music && music.playingId() && session.currentId !== "song-" + music.playingId()) music.stop();
+      render(); return;
+    }
     if (music && type === "full") { music.full(btn); return; }
     if (music && type === "stop") { music.stop(); return; }
     if (btn.combo && (type === "outfit" || type === "yes")) {
@@ -799,6 +809,22 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     if (r.speak != null) { sp.say && sp.say(r.speak); }
   }
 
+  // The widest single word on the rail at FONT_MIN, plus a text tile's side
+  // padding: the narrowest rail that never has to break or clip a word.
+  function railWordNeed(rail) {
+    const probe = document.createElement("span");
+    probe.className = "tile-label";
+    probe.style.cssText = "position:absolute; visibility:hidden; white-space:nowrap; font-size:" + CONFIG.FONT_MIN + "px";
+    area.appendChild(probe);
+    let widest = 0;
+    for (const b of rail) for (const word of String(b.label || "").split(/\s+/)) {
+      probe.textContent = word;
+      widest = Math.max(widest, probe.getBoundingClientRect().width);
+    }
+    probe.remove();
+    return Math.ceil(widest) + 2 * TEXT_TILE_SIDE_PAD + 2;
+  }
+
   function render() {
     // page-settle (27P #5b): the surface is about to change under her gaze —
     // suppress dwell arming for settleMs so a fresh page never inherits it.
@@ -822,9 +848,24 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     const availW = window.innerWidth - 2 * CONFIG.SIDE_PAD;
     const availH = window.innerHeight - sizeBar() - 2 * CONFIG.V_PAD;
     const { rows, cols, slots } = layoutCells(board);
-    const { w, h, gap } = gridFit(rows, cols, availW, availH);
+    // THE RAIL (songs board, spec 2026-10-31 — the book shelf's shape): a
+    // left column one grid column wide, its tiles stacked top to bottom with
+    // the grid's own gap and filling the grid's height. The grid's cells sit
+    // one column to the right; every size here is the contract's.
+    const rail = Array.isArray(board.rail) && board.rail.length ? board.rail : null;
+    const lead = rail ? 1 : 0;
+    let { w, h, gap } = gridFit(rows, cols + lead, availW, availH);
+    // Word integrity outranks an even split: a rail word that would not fit
+    // its tile even at the contract's absolute minimum widens the rail just
+    // enough (the grid's columns give it back). At 1920 wide a grid column is
+    // already plenty; on a 1280 screen "Favorites" needs a few pixels more.
+    let railW = w;
+    if (rail) {
+      railW = Math.max(w, railWordNeed(rail));
+      if (railW > w) w = Math.max(60, Math.floor((availW - railW - cols * gap) / cols));
+    }
 
-    area.style.gridTemplateColumns = "repeat(" + cols + ", " + w + "px)";
+    area.style.gridTemplateColumns = (rail ? railW + "px " : "") + "repeat(" + cols + ", " + w + "px)";
     area.style.gridTemplateRows = "repeat(" + rows + ", " + h + "px)";
     area.style.gap = gap + "px";
     area.style.padding = CONFIG.V_PAD + "px " + CONFIG.SIDE_PAD + "px";
@@ -833,13 +874,30 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     for (const el of songEls.values()) if (el._pictureUrl) URL.revokeObjectURL(el._pictureUrl);
     songEls = new Map();
     movieEls = new Map();
+    if (rail) {
+      const col = document.createElement("div");
+      col.className = "rail";
+      col.style.gridRow = "1 / span " + rows;
+      col.style.gridColumn = "1";
+      col.style.gap = gap + "px";
+      col.style.gridTemplateRows = "repeat(" + rail.length + ", minmax(0, 1fr))";
+      const railH = Math.floor((rows * h + (rows - 1) * gap - (rail.length - 1) * gap) / rail.length);
+      area.appendChild(col);
+      for (const btn of rail) {
+        const { el, fit } = makeTile(btn, railW, railH, contentDwellMs);
+        el.addEventListener("click", () => onTile(btn, el));
+        col.appendChild(el);
+        fits.push(fit);
+      }
+    }
     for (let i = 0; i < slots.length; i++) {
       const btn = slots[i];
       if (btn === TAKEN) continue;   // covered by a spanning neighbor
       const r = Math.floor(i / cols) + 1, c = (i % cols) + 1;
       const place = (el, rs, cs) => {
         el.style.gridRow = r + (rs > 1 ? " / span " + rs : "");
-        el.style.gridColumn = c + (cs > 1 ? " / span " + cs : "");
+        el.style.gridColumn = (c + lead) + (cs > 1 ? " / span " + cs : "");
+        el.dataset.cell = r + "," + c;   // the board's own [row,col], rail or not
         area.appendChild(el);
       };
       if (!btn) { place(restCell(), 1, 1); continue; }
@@ -848,15 +906,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
       const { el, fit } = makeTile(btn, w * cs + gap * (cs - 1), h * rs + gap * (rs - 1), contentDwellMs);
       el.addEventListener("click", () => onTile(btn, el));
       if ((btn.type || "").toLowerCase() === "song" && btn.song_id) songEls.set(btn.song_id, el);
-      // T4.5: the grid's song DOORS are the tiles arrange mode may move (the
-      // hero on a song's own page carries the same song_id and no `load`, and
-      // moving it would mean nothing). The id rides on the tile so a drag never
-      // has to walk the recipe again to name what it just moved.
-      if ((btn.type || "").toLowerCase() === "song" && btn.song_id && btn.load != null)
-        el.dataset.arrangeId = btn.song_id;
-      // ...and the page doors are where a drag may SEND one, which is the only
-      // way a song ever crosses a page boundary (review 9/5).
-      if (isPageDoor(btn)) el.dataset.arrangeNav = btn.load;
       if (LAUNCH_TYPES.has((btn.type || "").toLowerCase()) && btn.titleId != null)
         movieEls.set(launchKey(btn), el);
       place(el, rs, cs);
@@ -878,15 +927,7 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
   return {
     render,
     session,
-    // T4.5: what board-arrange.js needs and nothing more — the grid it drags
-    // tiles inside, and the switch that turns every tile into furniture.
     area,
-    // board-arrange.js's thaw() hands .dwell back to EVERY tile on the way out
-    // of arrange mode — it has no idea the lock took some of them away — so the
-    // lock is re-applied the moment the mode closes. (Leaving arrange mode is
-    // not a render, so render()'s own syncLock would not catch this.)
-    setArranging(on) { arranging = !!on; if (!arranging) syncLock(); return arranging; },
-    isArranging() { return arranging; },
     // deep-link/testing hook: jump to a board id then render.
     show(id) { session.navigate(id); render(); return session.current; },
     home() { session.home(); render(); },

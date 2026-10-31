@@ -141,9 +141,10 @@ test("the splash's bar goes with the splash — her return reaches the board's o
                  "one bar on the screen, not the splash's and the board's");
 
     // her own pause, on the board's bar, mid-song
+    const first = await page.locator(".tile.type-song").first().getAttribute("data-song-id");
     await page.locator(".tile.type-song").first().click();
-    await page.waitForFunction(() => window.Music.playingId() === "test-song-1" &&
-                                     window.Music._audio.currentTime > 0.1, null, { timeout: 8000 });
+    await page.waitForFunction((id) => window.Music.playingId() === id &&
+                                     window.Music._audio.currentTime > 0.1, first, { timeout: 8000 });
     {
       const answered = page.waitForResponse((res) => res.url().includes("/kiosk/pause"));
       await page.locator("#barTalk").click();
@@ -168,7 +169,7 @@ test("the splash's bar goes with the splash — her return reaches the board's o
     });
     assert.deepEqual(suppressed, [600], "only the board's own bar answered her return");
     await page.waitForFunction(() => !window.Music._audio.paused, null, { timeout: 4000 });
-    assert.equal(await page.evaluate(() => window.Music.playingId()), "test-song-1",
+    assert.equal(await page.evaluate(() => window.Music.playingId()), first,
                  "...and it is the board's onResume that ran: her song plays on");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();

@@ -6,6 +6,12 @@
 // restart; leaving the page stops the music; clip end = silence; the IDB
 // cache keeps all of it working with the network dead. Clip length is
 // overridden to 1.5s via window.__musicTest (real recipes say 40s).
+// Since 2026-10-31 (spec music-sections-and-usage-order) every grid page has a
+// rail of sections — Back, Favorites, New, Top hits, Disney, All — beside the
+// 3x4 grid; the order comes from the hub and never moves while she is on a
+// page; a song page's Back returns to the section page she came from. Order
+// within a section depends on the shared hub's pick history and each fixture
+// file's added time, so these tests read song ids off the page, never assume.
 // Runs under `node --test` or `node tests/board-music.test.mjs`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -31,8 +37,9 @@ async function makePage(browser, pictures = false) {
     await ctx.route("**/recipes/songs.json", async route => {
       const response = await route.fetch();
       const recipe = await response.json();
-      const hero = recipe.boards.find(b => b.id === "song-test-song-1").buttons.find(b => b.type === "song");
-      hero.pictures = Array.from({ length: 10 }, (_, i) => "music/test-song-1-frame-0123456789abcdef-" + String(i).padStart(2, "0") + ".jpg");
+      const first = recipe.boards.find(b => b.id === "songs-all").buttons.find(b => b.row === 1 && b.col === 1).song_id;
+      const hero = recipe.boards.find(b => b.id === "song-" + first).buttons.find(b => b.type === "song");
+      hero.pictures = Array.from({ length: 10 }, (_, i) => "music/" + first + "-frame-0123456789abcdef-" + String(i).padStart(2, "0") + ".jpg");
       await route.fulfill({ response, json: recipe });
     });
     await ctx.route("**/music/*-frame-*.jpg", route => route.fulfill({ status: 200, contentType: "image/png",
@@ -47,8 +54,17 @@ async function makePage(browser, pictures = false) {
   const page = await ctx.newPage();
   await page.goto(BASE, { waitUntil: "load" });
   await page.waitForFunction(() => window.Board && window.Music, null, { timeout: 8000 });
+  // All holds every song whatever has been played: start there
+  await page.locator('.rail .tile[aria-label="All"]').click();
+  await page.waitForFunction(() => window.Board.session.currentId === "songs-all");
   return { ctx, page, musicEvents };
 }
+// the song ids on the grid, in the spec's cell order
+const CELLS = [[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 4], [3, 2], [3, 3], [3, 4]];
+const gridSongs = (page) => page.evaluate((cells) => cells.map(([r, c]) => {
+  const el = document.querySelector(`.board-area [data-cell="${r},${c}"].tile.type-song`);
+  return el ? el.dataset.songId : null;
+}).filter(Boolean), CELLS);
 
 const audioState = (page) => page.evaluate(() => ({
   paused: window.Music._audio.paused,
@@ -68,21 +84,42 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
   try {
     const { ctx, page, musicEvents } = await makePage(browser);
 
-    // ---- grid page 1 (v3): 9 song doors incl. corners, More, center rests ----
+    // ---- the rail: six tiles, top to bottom, the current section lit ----
+    const rail = await page.evaluate(() => [...document.querySelectorAll(".rail > .tile")].map((t) => ({
+      label: t.getAttribute("aria-label"), lit: t.classList.contains("is-current"),
+      dwell: t.classList.contains("dwell"), disabled: t.hasAttribute("data-dwell-disabled"),
+      ms: t.dataset.dwellMs })));
+    assert.deepEqual(rail.map((t) => t.label), ["Back", "Favorites", "New", "Top hits", "Disney", "All"]);
+    assert.deepEqual(rail.filter((t) => t.lit).map((t) => t.label), ["All"], "the current section is lit");
+    assert.deepEqual(rail.filter((t) => t.dwell).map((t) => t.label), ["Favorites", "New", "Top hits", "Disney", "All"],
+      "every section is a dwell target");
+    assert.deepEqual(rail.filter((t) => t.disabled).map((t) => t.label), ["Back"], "Back is dwell-disabled on page 1");
+    const dwell = await page.evaluate(() => document.querySelector(".board-area .tile.type-song").dataset.dwellMs);
+    assert.ok(rail.every((t) => t.ms === dwell), "rail tiles hold her Settings dwell, like the grid");
+    // a finger on the dimmed Back does nothing either
+    await page.locator('.rail .tile[aria-label="Back"]').click({ force: true });
+    assert.equal(await onBoard(page), "songs-all", "Back on page 1 stays put");
+
+    // ---- the grid: 9 song doors in the spec's cells, More [3,1], centre black ----
     assert.equal(await page.locator(".tile.type-song").count(), 9, "9 song tiles");
     assert.equal(await page.locator(".tile.type-stop").count(), 0, "no Stop on the grid");
     assert.equal(await page.locator(".tile.type-exit").count(), 0, "no All done tile");
     assert.equal(await page.locator(".cell.rest").count(), 2, "center rests only");
+    const centre = await page.evaluate(() => [...document.querySelectorAll(".board-area .cell.rest")]
+      .map((el) => el.dataset.cell));
+    assert.deepEqual(centre.sort(), ["2,2", "2,3"], "[2,2] and [2,3] are the black cells");
+    const page1 = await gridSongs(page);
+    assert.equal(page1.length, 9);
     const moreTile = page.locator('.tile.type-control:has-text("More")');
     assert.equal(await moreTile.count(), 1, "More door present (outfit-style control tile)");
     assert.ok((await moreTile.locator("img.tile-img").getAttribute("src")).includes("/symbol/more"),
       "More wears the outfit board's more image");
-
     // ---- pick a song: song page opens AND the clip starts ----
     await page.evaluate(() => { window.__speechLog.length = 0; });
+    const first = page1[0];
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
-    assert.equal(await onBoard(page), "song-test-song-1", "landed on the song page");
+    await waitPlaying(page, first);
+    assert.equal(await onBoard(page), "song-" + first, "landed on the song page");
     // song page chrome: big hero left, arrow back / Stop / Full song, rest col
     const hero = page.locator(".tile.type-song");
     assert.equal(await hero.count(), 1, "one hero tile");
@@ -105,30 +142,31 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     const log1 = await page.evaluate(() => window.__speechLog.slice());
     assert.ok(log1.some((e) => e.call === "stop"), "barge-in: Speech.stop fired");
     assert.ok(!log1.some((e) => e.call === "say"), "song pick is silent (music is the response)");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "play" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "play" });
 
     // ---- the clip caps playback: ~1.5s then silence, still on the page ----
     await waitSilent(page);
     const s1 = await audioState(page);
     assert.equal(s1.paused, true, "clip over -> paused");
     assert.ok(s1.t >= CLIP_MS / 1000 - 0.5 && s1.t < 2.9, `stopped near the clip cap (t=${s1.t.toFixed(2)})`);
-    assert.equal(await onBoard(page), "song-test-song-1", "stays on the song page");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
+    assert.equal(await onBoard(page), "song-" + first, "stays on the song page");
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "clip" },
+      "the clip running out is told apart from the song ending");
 
     // ---- Full song AFTER clip expiry: continues from the mark (dad r6) ----
     const tClip = (await audioState(page)).t;
     await page.locator(".tile.type-full").click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     const sF = await audioState(page);
     assert.ok(sF.t >= tClip - 0.05, `continued from the clip mark (${tClip.toFixed(2)} -> ${sF.t.toFixed(2)})`);
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "full" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "full" });
     await waitSilent(page, 6000);   // plays the REST to the natural end
     assert.ok((await audioState(page)).t > 2.5, "played the rest of the song");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "done" });
 
     // ---- hero from silence (after a natural end): starts FRESH (dad r5) ----
     await page.locator(".tile.type-song").click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     assert.ok((await audioState(page)).t < 1.0, "post-end hero starts from the beginning");
     assert.ok(await page.locator(".tile.type-song.playing").count() === 1, "hero wears the ring");
 
@@ -139,7 +177,7 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
       "no badge during a plain clip");
     const tBefore = (await audioState(page)).t;
     await page.locator(".tile.type-full").click();
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "full" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "full" });
     await page.waitForSelector(".tile.type-song.full-on .full-badge", { state: "visible" });
     assert.equal(await page.locator(".tile.type-song .full-badge").textContent(), "Full song ✓",
       "hero acknowledges full mode under the image");
@@ -156,13 +194,13 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     await waitSilent(page, 6000);   // natural end of the 3s fixture song
     const s3 = await audioState(page);
     assert.ok(s3.t > 2.5 || s3.paused, "played past the clip cap to the real end");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "end" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "done" });
     assert.equal(await page.locator(".tile.type-song.full-on").count(), 0,
       "badge clears when the song ends");
 
     // ---- hero is gaze-safe while playing: activation = NO-OP (dad r5) ----
     await page.locator(".tile.type-song").click();      // fresh clip from silence
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     await page.waitForFunction(() => window.Music._audio.currentTime > 0.3);
     const evCount = musicEvents.length;
     const tA = (await audioState(page)).t;
@@ -176,30 +214,66 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     // ---- Stop remembers the spot; the hero RESUMES from it (dad r5) ----
     await page.locator(".tile.type-stop").click();
     await waitSilent(page);
-    assert.equal(await onBoard(page), "song-test-song-1", "Stop does not navigate");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "stop" });
+    assert.equal(await onBoard(page), "song-" + first, "Stop does not navigate");
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "stop" });
     const tStop = (await audioState(page)).t;
     assert.ok(tStop > 0.2, "paused mid-clip with position kept");
     await page.locator(".tile.type-song").click();      // hero: resume, not restart
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     const sR = await audioState(page);
     assert.ok(sR.t >= tStop - 0.05, `resumed from the spot (${tStop.toFixed(2)} -> ${sR.t.toFixed(2)})`);
 
     // ---- back arrow: leaves the page AND stops the music ----
     await page.locator(".tile.type-back").click();
-    await page.waitForFunction(() => window.Board.session.currentId === "songs");
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all");
     await waitSilent(page);
     assert.equal((await audioState(page)).paused, true,
       "leaving the song page stops playback (why the grid needs no Stop)");
-    assert.deepEqual(musicEvents.at(-1), { songId: "test-song-1", action: "stop" });
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "stop" });
 
-    // ---- grid page 2: 3 remaining songs, arrow-back door ----
+    // ---- grid page 2 of All: 3 remaining songs; More loops; rail Back ----
     await page.locator('.tile.type-control:has-text("More")').click();
-    await page.waitForFunction(() => window.Board.session.currentId === "songs-2");
-    assert.equal(await page.locator(".tile.type-song").count(), 3, "ranks 10-12 on page 2");
-    assert.equal(await page.locator(".tile.type-back .tile-glyph").textContent(), "←");
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all-2");
+    assert.equal(await page.locator(".tile.type-song").count(), 3, "the rest of All on page 2");
+    const page2 = await gridSongs(page);
+    assert.equal(new Set([...page1, ...page2]).size, 12, "every song once across the section's pages");
+    const back2 = page.locator('.rail .tile[aria-label="Back"]');
+    assert.equal(await back2.getAttribute("data-dwell-disabled"), null, "Back is live on page 2");
+    assert.ok(await back2.evaluate((el) => el.classList.contains("dwell")), "…and a gaze target");
+    // a song page opened from page 2 returns to page 2
+    await page.locator(".tile.type-song").first().click();
+    await waitPlaying(page, page2[0]);
     await page.locator(".tile.type-back").click();
-    await page.waitForFunction(() => window.Board.session.currentId === "songs");
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all-2");
+    await waitSilent(page);
+    assert.equal(await page.locator('.rail .tile.is-current').getAttribute("aria-label"), "All");
+    await page.locator('.tile.type-control:has-text("More")').click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all", null, { timeout: 4000 });
+    assert.deepEqual(await gridSongs(page), page1, "More on the last page loops to page 1, same order");
+    await page.locator('.tile.type-control:has-text("More")').click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all-2");
+    await back2.click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all");
+
+    // ---- sections: New lists every song; Top hits / Disney have none here ----
+    await page.locator('.rail .tile[aria-label="New"]').click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-new");
+    assert.equal(await page.locator('.rail .tile.is-current').getAttribute("aria-label"), "New");
+    assert.equal(await page.locator(".tile.type-song").count(), 9);
+    // a song page opened from New returns to New, not All
+    const fromNew = (await gridSongs(page))[0];
+    await page.locator(".tile.type-song").first().click();
+    await waitPlaying(page, fromNew);
+    await page.locator(".tile.type-back").click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-new");
+    await waitSilent(page);
+    await page.locator('.rail .tile[aria-label="Disney"]').click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-disney");
+    assert.equal(await page.locator(".tile.type-song").count(), 0, "the fixture has no Disney songs");
+    assert.equal(await page.locator(".board-area .cell.rest").count(), 12, "an empty section is one page of black cells");
+    assert.equal(await page.locator(".tile.type-control").count(), 0, "…with no More");
+    await page.locator('.rail .tile[aria-label="All"]').click();
+    await page.waitForFunction(() => window.Board.session.currentId === "songs-all");
 
     // ---- offline: cached songs still open their page and play the clip ----
     await page.waitForFunction(() => window.__musicCached !== null, null, { timeout: 30000 });
@@ -207,8 +281,8 @@ test("songs board v2: grid, song page flow, clip, full, back-stops, offline", as
     assert.equal(cached.cached, cached.total, "prefetch cached every song");
     await ctx.setOffline(true);
     await page.locator(".tile.type-song").nth(2).click();
-    await waitPlaying(page, "test-song-3");
-    assert.equal(await onBoard(page), "song-test-song-3");
+    await waitPlaying(page, page1[2]);
+    assert.equal(await onBoard(page), "song-" + page1[2]);
     await ctx.setOffline(false);
   } finally { await browser.close(); }
 });
@@ -267,8 +341,9 @@ test("song pictures: ten frames cycle without restarting music, work offline, an
   const browser = await chromium.launch();
   try {
     const { ctx, page, musicEvents } = await makePage(browser, true);
+    const first = (await gridSongs(page))[0];
     await page.locator(".tile.type-song").first().click();
-    await waitPlaying(page, "test-song-1");
+    await waitPlaying(page, first);
     await page.evaluate(() => { window.Music._audio.playbackRate = 0.1; });
     const hero = page.locator(".tile.type-song");
     await page.waitForFunction(() => document.querySelector(".tile.type-song").dataset.pictureIndex === "0");
@@ -315,11 +390,169 @@ test("song pictures: ten frames cycle without restarting music, work offline, an
     await page.locator("#pictureVideoLink").fill("https://www.youtube.com/watch?v=picture-video");
     await page.getByRole("button", { name: "Get video pictures" }).click();
     await page.waitForFunction(() => document.querySelector("#sheetSay").textContent === "Test preview");
-    assert.deepEqual(pictureRequest, { id: "test-song-1", clear: false, url: "https://www.youtube.com/watch?v=picture-video" });
+    assert.deepEqual(pictureRequest, { id: first, clear: false, url: "https://www.youtube.com/watch?v=picture-video" });
     assert.equal(await page.locator(".tile.dwell").count(), 0, "covered tiles cannot activate through the review");
     await page.locator("#sheetClose").click();
     assert.equal(await page.locator(".tile.dwell").count(), 4);
     await page.screenshot({ path: "/tmp/music-recruitment-song.png" });
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+test("Full song from silence is a fresh pick; Stop and the clip tell themselves apart", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page, musicEvents } = await makePage(browser);
+    const first = (await gridSongs(page))[0];
+    await page.locator(".tile.type-song").first().click();
+    await waitPlaying(page, first);
+    await page.locator(".tile.type-stop").click();
+    await waitSilent(page);
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "stop" });
+    await page.locator(".tile.type-full").click();          // from silence: a new pick, full
+    await waitPlaying(page, first);
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "full", fresh: true });
+    await waitSilent(page, 6000);
+    assert.deepEqual(musicEvents.at(-1), { songId: first, action: "done" });
+  } finally { await browser.close(); }
+});
+
+// The order is fixed when the recipe is BUILT (spec "Calls made"): a pick moves
+// the hub's ETag order part (`~o<hash>`), and a board on screen must not
+// reload for it, or the tiles would move under her gaze. A content change (a
+// new song, a section a parent set) still reloads once she is idle — but never
+// while a song is playing.
+test("a board on screen never reloads for a new order; content still reloads when idle and silent", async () => {
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/music-event", (r) => r.fulfill({ status: 204, body: "" }));
+    await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+    await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+    let served = null, heads = 0, gets = 0;
+    let headTag = (tag) => tag;
+    await ctx.route("**/recipes/songs.json", async (route) => {
+      if (route.request().method() === "HEAD") {
+        heads++;
+        return route.fulfill({ status: 200, headers: { etag: headTag(served) }, body: "" });
+      }
+      gets++;
+      const response = await route.fetch();
+      served = response.headers()["etag"];
+      return route.fulfill({ response });
+    });
+    await ctx.addInitScript(() => {
+      window.__testHooks = true;
+      window.__musicTest = { clipMs: 1500 };
+      window.__boardTest = { pollMs: 150, retryMs: 150, idleMs: 0 };
+    });
+    const page = await ctx.newPage();
+    await page.goto(BASE, { waitUntil: "load" });
+    await page.waitForFunction(() => window.Board && window.Music, null, { timeout: 8000 });
+    assert.match(served, /~o[0-9a-f]+"$/, "the hub's ETag carries an order part");
+    await page.evaluate(() => { window.__stillHere = true; });
+
+    headTag = (tag) => tag.replace(/~o[0-9a-f]+"$/, '~o000000000000"');   // only the order moved
+    const h0 = heads;
+    await page.waitForTimeout(1200);
+    assert.ok(heads > h0 + 2, "the watcher kept asking");
+    assert.equal(await page.evaluate(() => window.__stillHere === true), true, "no reload for an order change");
+    assert.equal(gets, 1, "and no new recipe fetched");
+
+    // content moved, but a song is playing: wait for silence
+    await page.locator(".tile.type-song").first().click();
+    await page.waitForFunction(() => window.Music.isPlaying());
+    headTag = (tag) => tag.replace(/^"\d+/, '"1');
+    await page.waitForTimeout(600);
+    assert.equal(await page.evaluate(() => window.__stillHere === true), true, "never reloads under a playing song");
+    await page.waitForFunction(() => !window.__stillHere, null, { timeout: 8000 });   // the clip ends, then it reloads
+    assert.equal(gets, 2, "the reload fetched the recipe again");
+    await ctx.close();
+  } finally { await browser.close(); }
+});
+
+// Geometry at her two screen sizes: the rail and the grid fit under the bar,
+// nothing overlaps, labels hold the 74 floor unless marked fit-impossible, the
+// centre stays black. ERA_SHOTS names a directory for screenshots.
+test("rail and grid fit at 1920x1080 and 1280x720", async () => {
+  const shots = process.env.ERA_SHOTS || null;
+  const browser = await chromium.launch();
+  try {
+    for (const [w, h] of [[1920, 1080], [1280, 720]]) {
+      const ctx = await browser.newContext({ viewport: { width: w, height: h } });
+      await ctx.route("**/log", (r) => r.fulfill({ status: 204, body: "" }));
+      await ctx.route("**/voices", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"enabled":false,"voices":[]}' }));
+      await ctx.route("**/tts*", (r) => r.fulfill({ status: 503, body: "" }));
+      const page = await ctx.newPage();
+      await page.goto(BASE, { waitUntil: "load" });
+      await page.waitForFunction(() => window.Board, null, { timeout: 8000 });
+      await page.evaluate(() => window.Board.show("songs-all"));
+      await page.waitForTimeout(150);
+      const g = await page.evaluate(() => {
+        const box = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+        const bar = document.querySelector(".msgbar").getBoundingClientRect().bottom;
+        const rail = [...document.querySelectorAll(".rail > .tile")].map((el) => ({ ...box(el),
+          font: +el.querySelector(".tile-label").dataset.fontPx, reduced: !!el.querySelector(".tile-label").dataset.fontReduced,
+          over: el.querySelector(".tile-label").scrollWidth > el.querySelector(".tile-label").clientWidth + 1 }));
+        const cells = [...document.querySelectorAll(".board-area [data-cell]")].map((el) => ({ ...box(el), cell: el.dataset.cell,
+          rest: el.classList.contains("rest"), bg: getComputedStyle(el).backgroundColor }));
+        return { bar, rail, cells, vw: innerWidth, vh: innerHeight, scrollW: document.documentElement.scrollWidth };
+      });
+      assert.equal(g.rail.length, 6);
+      assert.equal(g.cells.length, 12, "twelve grid cells");
+      assert.ok(g.scrollW <= g.vw, "no horizontal scroll");
+      const all = [...g.rail, ...g.cells];
+      for (const b of all) {
+        assert.ok(b.t >= g.bar - 0.5, `below the door bar at ${w}x${h}`);
+        assert.ok(b.b <= g.vh + 0.5 && b.r <= g.vw + 0.5 && b.l >= -0.5, `on screen at ${w}x${h}`);
+      }
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+        const a = all[i], b = all[j];
+        const overlap = Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
+        assert.ok(!overlap, `no two tiles overlap at ${w}x${h}`);
+      }
+      const railRight = Math.max(...g.rail.map((b) => b.r)), gridLeft = Math.min(...g.cells.map((b) => b.l));
+      assert.ok(gridLeft - railRight >= 13.5, "the contract gap between rail and grid");
+      assert.ok(Math.abs(g.rail[0].t - Math.min(...g.cells.map((b) => b.t))) < 1 &&
+                Math.abs(g.rail[5].b - Math.max(...g.cells.map((b) => b.b))) < 1, "the rail fills the grid's height");
+      for (const r of g.rail) {
+        assert.ok(!r.over, "no rail label overflows");
+        assert.ok(r.font >= 74 || r.reduced, `rail label >= 74px or marked fit-impossible (${r.font}px at ${w}x${h})`);
+      }
+      for (const c of g.cells.filter((c) => c.cell === "2,2" || c.cell === "2,3"))
+        assert.ok(c.rest && c.bg === "rgb(0, 0, 0)", "centre black");
+      if (shots) await page.screenshot({ path: `${shots}/songs-rail-${w}x${h}.png` });
+      await ctx.close();
+    }
+  } finally { await browser.close(); }
+});
+
+test("a parent sets a song's section from the touch-only sheet", async () => {
+  const browser = await chromium.launch();
+  try {
+    const { ctx, page } = await makePage(browser);
+    let sent = null;
+    await ctx.route("**/music/category", (route) => {
+      sent = route.request().postDataJSON();
+      return route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ ok: true, id: sent.id, category: sent.category, mirrored: true }) });
+    });
+    const first = (await gridSongs(page))[0];
+    await page.locator(".tile.type-song").first().click();
+    await waitPlaying(page, first);
+    await page.locator("#stripPictures").click();
+    const choices = page.locator("#partnerSheet .song-category button");
+    assert.deepEqual(await choices.allTextContents(), ["Top hits", "Disney", "Neither"]);
+    assert.equal(await page.locator("#partnerSheet .dwell, #partnerSheet [data-dwell-ms]").count(), 0, "touch only");
+    assert.equal(await page.locator('#partnerSheet .song-category button[aria-pressed="true"]').textContent(), "Neither",
+      "the fixture's songs are in neither");
+    await page.locator("#partnerSheet .song-category button", { hasText: "Disney" }).click();
+    await page.waitForFunction(() => document.querySelector('#partnerSheet .song-category button[aria-pressed="true"]')?.textContent === "Disney");
+    assert.deepEqual(sent, { id: first, category: "disney" });
+    await page.locator("#partnerSheet .song-category button", { hasText: "Neither" }).click();
+    await page.waitForFunction(() => document.querySelector('#partnerSheet .song-category button[aria-pressed="true"]')?.textContent === "Neither");
+    assert.deepEqual(sent, { id: first, category: null });
     await ctx.close();
   } finally { await browser.close(); }
 });

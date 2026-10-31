@@ -113,7 +113,8 @@ test("songs board: the strip rides in the bar, and the doors keep the bar's only
     // 9/14: 🔒 joined them (board-lock.test.mjs owns what it DOES). What this
     // suite keeps asserting about it is what it is NOT — no .dwell, no
     // data-dwell-* — two lines up.
-    assert.deepEqual(bar.labels, ["+ Add", "⇅ Arrange", "Pictures", "🔒"], "the strip's grown-up doors");
+    // ⇅ Arrange left the songs board on 2026-10-31: usage order replaced it
+    assert.deepEqual(bar.labels, ["+ Add", "Pictures", "🔒"], "the strip's grown-up doors");
     assert.ok(bar.hPct <= 9.1, `bar is still a slim strip (was ${bar.hPct}% of the viewport)`);
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
@@ -142,6 +143,7 @@ test("movies board gets the strip; Clothing also has a shared lock control", asy
     const mBar = await barShape(movies.page);
     assert.deepEqual(mBar.kids, ["barDoor", "barTalk", "partnerStrip"], "movies board: two doors + strip");
     assert.deepEqual(mBar.barDwell, ["barDoor", "barTalk"], "movies board: the two doors are still the bar's only dwell targets");
+    assert.ok(mBar.labels.includes("⇅ Arrange"), "movies keep their Arrange door (only the songs board lost it)");
     await movies.ctx.close();
 
     const today = await open(browser, "");
@@ -355,10 +357,14 @@ test("the sheet shields the board: a gaze parked on a tile beneath it fires noth
     await page.waitForFunction(() => !document.getElementById("partnerSheet"), null, { timeout: 4000 });
     const back = await page.evaluate(() => ({
       dwellTiles: document.querySelectorAll(".board-area .tile.dwell").length,
-      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]").length,
+      // the songs rail's Back is dimmed on a section's page 1 (2026-10-31):
+      // asleep before the sheet and after it, and never the sheet's to wake
+      disabled: document.querySelectorAll(".board-area .tile[data-dwell-disabled]:not(.dimmed)").length,
+      dimmed: [...document.querySelectorAll(".board-area .tile.dimmed")].map((el) => el.getAttribute("aria-label")),
     }));
     assert.ok(back.dwellTiles > 0, "closing the sheet gives her the board back");
     assert.equal(back.disabled, 0, "with nothing left switched off");
+    assert.deepEqual(back.dimmed, ["Back"], "but page 1's Back stays asleep");
     assert.deepEqual(errors, [], "no page errors");
     await ctx.close();
   } finally { await browser.close(); }
@@ -492,7 +498,7 @@ test("no songs yet: the splash says so and carries + Add, and an add ends the sp
                                      clip_ms: 40000, load: "song-one", row: 1, col: 1 }] }] };
     await page.waitForFunction(() => window.Board && typeof window.Board.show === "function" && !document.querySelector(".splash"), null, { timeout: 8000 });
     assert.equal(await page.locator("#partnerStrip").count(), 1, "the board wears one strip, not the splash's too");
-    assert.deepEqual((await barShape(page)).labels, ["+ Add", "⇅ Arrange", "Pictures", "🔒"], "…and the real board's strip has its second door back");
+    assert.deepEqual((await barShape(page)).labels, ["+ Add", "Pictures", "🔒"], "…and the real board's strip has its song door back");
     // The board came up UNDER the sheet the grown-up is still holding (they
     // waited with it open while the hub downloaded). freezeBoard ran once, on
     // the splash, so the fresh tiles arrived wearing .dwell — live gaze targets
