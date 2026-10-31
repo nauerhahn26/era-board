@@ -102,9 +102,6 @@ export const CONFIG = {
            link: "#FFFFFF" },  // This week's Play door: painted like the show doors beside it
   INK_DARK: "#17272E",
   INK_LIGHT: "#FFFFFF",
-  // the section she is in, lit on the songs rail — the book shelf's coral
-  // (lib/tokens.css --c-vowel), the colour the reader's rail lights its own with
-  RAIL_CURRENT: "#DE7B52",
 };
 
 // tiles whose ink should be dark (light backgrounds)
@@ -311,12 +308,10 @@ function makeTile(btn, w, h, dwellMs) {
     el.setAttribute("data-dwell-disabled", "");
     el.setAttribute("aria-disabled", "true");
   }
-  if (btn.current) el.classList.add("is-current");
 
   // A forecast remains a speaking control, with a quiet sage background.
   const isWeather = btn.footnote != null;
-  const bg = isWeather ? "#CEDBD6" : btn.current ? CONFIG.RAIL_CURRENT
-    : (CONFIG.color[type] || CONFIG.color.control);
+  const bg = isWeather ? "#CEDBD6" : (CONFIG.color[type] || CONFIG.color.control);
   el.style.background = bg;
   el.style.color = (isWeather || LIGHT_BG.has(type)) ? CONFIG.INK_DARK : CONFIG.INK_LIGHT;
 
@@ -466,9 +461,55 @@ function makeTile(btn, w, h, dwellMs) {
   return { el, fit };
 }
 
-// .tile.icon's side padding in board.css — the room a text tile's label loses
-// on each side. Kept beside the stylesheet's own number, never a new size.
-const TEXT_TILE_SIDE_PAD = 12;
+// THE BOOK READER'S RAIL, in numbers (era-hub public/reader/index.html: the
+// .shelf-body column clamp(120px, 13vw, 250px), its 18px gap to the grid, and
+// .shelf-rail's 12px between tiles). They are the reader's, copied at the
+// maintainer's word, not new sizes: the songs rail is to look like that one.
+const READER = { railMin: 120, railVw: 0.13, railMax: 250, railGridGap: 18, railTileGap: 12 };
+function readerRailWidth() {
+  return Math.min(READER.railMax, Math.max(READER.railMin, READER.railVw * window.innerWidth));
+}
+
+// A rail tile, the reader's .shelf-rail-tile: a light tile with the icon above
+// the word. Its look lives in board.css (.rail-tile); its LABEL SIZE is the
+// reader rail's clamp(0.95rem, 1.35vw, 1.45rem), a dad-approved exception to
+// the 74px text floor for the shelf rail (spec 2026-09-30-book-shelf-layout),
+// mirrored here because the maintainer asked for the reader's rail as it is.
+// It is a dwell target holding her Settings dwell like every grid tile; a
+// `disabled` one (Back on page 1) is dimmed and out of the gaze's reach.
+function makeRailTile(btn, dwellMs) {
+  const type = btn.type || "category";
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "cell tile rail-tile dwell type-" + type;
+  el.dataset.tileType = type;
+  el.dataset.dwellMs = String(tileDwellMs(btn, type, dwellMs));
+  el.setAttribute("aria-label", btn.label || "");
+  el.dataset.dwellSay = btn.say != null ? btn.say : (btn.label || "");
+  BTN_OF.set(el, btn);
+  if (btn.current) el.classList.add("is-current");
+  if (btn.disabled) {
+    el.classList.remove("dwell");
+    el.classList.add("dimmed");
+    el.setAttribute("data-dwell-disabled", "");
+    el.setAttribute("aria-disabled", "true");
+  }
+  const label = document.createElement("span");
+  label.className = "rail-label";
+  if (btn.icon) {
+    const icon = document.createElement("span");
+    icon.className = "rail-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = btn.icon;
+    label.appendChild(icon);
+  }
+  const word = document.createElement("span");
+  word.className = "rail-word";
+  word.textContent = btn.label || "";
+  label.appendChild(word);
+  el.appendChild(label);
+  return el;
+}
 
 // ---- board layout ----------------------------------------------------------
 
@@ -809,22 +850,6 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     if (r.speak != null) { sp.say && sp.say(r.speak); }
   }
 
-  // The widest single word on the rail at FONT_MIN, plus a text tile's side
-  // padding: the narrowest rail that never has to break or clip a word.
-  function railWordNeed(rail) {
-    const probe = document.createElement("span");
-    probe.className = "tile-label";
-    probe.style.cssText = "position:absolute; visibility:hidden; white-space:nowrap; font-size:" + CONFIG.FONT_MIN + "px";
-    area.appendChild(probe);
-    let widest = 0;
-    for (const b of rail) for (const word of String(b.label || "").split(/\s+/)) {
-      probe.textContent = word;
-      widest = Math.max(widest, probe.getBoundingClientRect().width);
-    }
-    probe.remove();
-    return Math.ceil(widest) + 2 * TEXT_TILE_SIDE_PAD + 2;
-  }
-
   function render() {
     // page-settle (27P #5b): the surface is about to change under her gaze —
     // suppress dwell arming for settleMs so a fresh page never inherits it.
@@ -848,24 +873,23 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     const availW = window.innerWidth - 2 * CONFIG.SIDE_PAD;
     const availH = window.innerHeight - sizeBar() - 2 * CONFIG.V_PAD;
     const { rows, cols, slots } = layoutCells(board);
-    // THE RAIL (songs board, spec 2026-10-31 — the book shelf's shape): a
-    // left column one grid column wide, its tiles stacked top to bottom with
-    // the grid's own gap and filling the grid's height. The grid's cells sit
-    // one column to the right; every size here is the contract's.
+    // THE RAIL (songs board, spec 2026-10-31): the Book Reader's shelf rail,
+    // copied at the maintainer's word ("copy book reader", 10/31; source of
+    // truth era-hub public/reader/index.html .shelf-body/.shelf-rail): a left
+    // column clamp(120px, 13vw, 250px) wide, 18px from the grid, its tiles
+    // 12px apart filling the grid's height. The grid's cells sit one column to
+    // the right and share what is left; their rows, gap and pads are the
+    // board's own, unchanged.
     const rail = Array.isArray(board.rail) && board.rail.length ? board.rail : null;
     const lead = rail ? 1 : 0;
-    let { w, h, gap } = gridFit(rows, cols + lead, availW, availH);
-    // Word integrity outranks an even split: a rail word that would not fit
-    // its tile even at the contract's absolute minimum widens the rail just
-    // enough (the grid's columns give it back). At 1920 wide a grid column is
-    // already plenty; on a 1280 screen "Favorites" needs a few pixels more.
-    let railW = w;
-    if (rail) {
-      railW = Math.max(w, railWordNeed(rail));
-      if (railW > w) w = Math.max(60, Math.floor((availW - railW - cols * gap) / cols));
-    }
+    let { w, h, gap } = gridFit(rows, cols, availW, availH);
+    const railW = rail ? readerRailWidth() : 0;
+    if (rail) w = Math.max(60, Math.floor((availW - railW - READER.railGridGap - (cols - 1) * gap) / cols));
 
-    area.style.gridTemplateColumns = (rail ? railW + "px " : "") + "repeat(" + cols + ", " + w + "px)";
+    // The rail's track carries the extra (18 - gap) px as the rail's own right
+    // margin, so the one grid gap the area has stays the board's 14px.
+    area.style.gridTemplateColumns = (rail ? (railW + READER.railGridGap - gap) + "px " : "") +
+      "repeat(" + cols + ", " + w + "px)";
     area.style.gridTemplateRows = "repeat(" + rows + ", " + h + "px)";
     area.style.gap = gap + "px";
     area.style.padding = CONFIG.V_PAD + "px " + CONFIG.SIDE_PAD + "px";
@@ -875,19 +899,20 @@ export function mountBoard({ mount, session, speech, dwellMs, music, pauseGoes }
     songEls = new Map();
     movieEls = new Map();
     if (rail) {
-      const col = document.createElement("div");
+      const col = document.createElement("nav");
       col.className = "rail";
+      col.setAttribute("aria-label", "Song sections");
       col.style.gridRow = "1 / span " + rows;
       col.style.gridColumn = "1";
-      col.style.gap = gap + "px";
+      col.style.width = railW + "px";
+      col.style.marginRight = (READER.railGridGap - gap) + "px";
+      col.style.gap = READER.railTileGap + "px";
       col.style.gridTemplateRows = "repeat(" + rail.length + ", minmax(0, 1fr))";
-      const railH = Math.floor((rows * h + (rows - 1) * gap - (rail.length - 1) * gap) / rail.length);
       area.appendChild(col);
       for (const btn of rail) {
-        const { el, fit } = makeTile(btn, railW, railH, contentDwellMs);
+        const el = makeRailTile(btn, contentDwellMs);
         el.addEventListener("click", () => onTile(btn, el));
         col.appendChild(el);
-        fits.push(fit);
       }
     }
     for (let i = 0; i < slots.length; i++) {

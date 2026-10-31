@@ -413,6 +413,8 @@ test("Full song from silence is a fresh pick; Stop and the clip tell themselves 
     await waitPlaying(page, first);
     assert.deepEqual(musicEvents.at(-1), { songId: first, action: "full", fresh: true });
     await waitSilent(page, 6000);
+    // the post leaves the page as the song ends; its route may run a beat later
+    for (let i = 0; i < 40 && musicEvents.at(-1).action !== "done"; i++) await page.waitForTimeout(50);
     assert.deepEqual(musicEvents.at(-1), { songId: first, action: "done" });
   } finally { await browser.close(); }
 });
@@ -472,10 +474,14 @@ test("a board on screen never reloads for a new order; content still reloads whe
   } finally { await browser.close(); }
 });
 
-// Geometry at her two screen sizes: the rail and the grid fit under the bar,
-// nothing overlaps, labels hold the 74 floor unless marked fit-impossible, the
-// centre stays black. ERA_SHOTS names a directory for screenshots.
-test("rail and grid fit at 1920x1080 and 1280x720", async () => {
+// Geometry at her two screen sizes, and the rail's LOOK, which is the Book
+// Reader's shelf rail (maintainer 2026-10-31: "copy book reader"; source of
+// truth era-hub public/reader/index.html): a rail clamp(120px, 13vw, 250px)
+// wide, 18px from the grid, 12px between its tiles, white tiles with ink text,
+// the reader's border/radius/shadow and font size, an icon above each word,
+// the current section coral, a dimmed (0.4) Back on page 1. The grid and the
+// centre stay the board's. ERA_SHOTS names a directory for screenshots.
+test("the rail is the Book Reader's rail, and rail and grid fit at 1920x1080 and 1280x720", async () => {
   const shots = process.env.ERA_SHOTS || null;
   const browser = await chromium.launch();
   try {
@@ -492,9 +498,15 @@ test("rail and grid fit at 1920x1080 and 1280x720", async () => {
       const g = await page.evaluate(() => {
         const box = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
         const bar = document.querySelector(".msgbar").getBoundingClientRect().bottom;
-        const rail = [...document.querySelectorAll(".rail > .tile")].map((el) => ({ ...box(el),
-          font: +el.querySelector(".tile-label").dataset.fontPx, reduced: !!el.querySelector(".tile-label").dataset.fontReduced,
-          over: el.querySelector(".tile-label").scrollWidth > el.querySelector(".tile-label").clientWidth + 1 }));
+        const rail = [...document.querySelectorAll(".rail > .tile")].map((el) => {
+          const cs = getComputedStyle(el), icon = el.querySelector(".rail-icon"), word = el.querySelector(".rail-word");
+          return { ...box(el), label: el.getAttribute("aria-label"), lit: el.classList.contains("is-current"),
+            bg: cs.backgroundColor, color: cs.color, border: cs.borderTopWidth + " " + cs.borderTopStyle + " " + cs.borderTopColor,
+            radius: cs.borderTopLeftRadius, shadow: cs.boxShadow, font: cs.fontSize, family: cs.fontFamily, opacity: cs.opacity,
+            icon: icon ? icon.textContent : null, iconAbove: !!(icon && word && icon.getBoundingClientRect().bottom <= word.getBoundingClientRect().top + 1),
+            wordOver: word ? word.scrollWidth > el.clientWidth : true,
+            disabled: el.hasAttribute("data-dwell-disabled"), dwell: el.classList.contains("dwell") };
+        });
         const cells = [...document.querySelectorAll(".board-area [data-cell]")].map((el) => ({ ...box(el), cell: el.dataset.cell,
           rest: el.classList.contains("rest"), bg: getComputedStyle(el).backgroundColor }));
         return { bar, rail, cells, vw: innerWidth, vh: innerHeight, scrollW: document.documentElement.scrollWidth };
@@ -502,23 +514,49 @@ test("rail and grid fit at 1920x1080 and 1280x720", async () => {
       assert.equal(g.rail.length, 6);
       assert.equal(g.cells.length, 12, "twelve grid cells");
       assert.ok(g.scrollW <= g.vw, "no horizontal scroll");
-      const all = [...g.rail, ...g.cells];
-      for (const b of all) {
+      // the reader's rail width, clamp(120px, 13vw, 250px)
+      const want = Math.min(250, Math.max(120, 0.13 * w));
+      for (const r of g.rail) assert.ok(Math.abs((r.r - r.l) - want) < 1, `rail ${r.r - r.l}px wide, the reader's ${want}px at ${w}x${h}`);
+      const railRight = Math.max(...g.rail.map((b) => b.r)), gridLeft = Math.min(...g.cells.map((b) => b.l));
+      assert.ok(Math.abs(gridLeft - railRight - 18) < 1, `the reader's 18px between rail and grid (${gridLeft - railRight})`);
+      for (let i = 1; i < g.rail.length; i++)
+        assert.ok(Math.abs(g.rail[i].t - g.rail[i - 1].b - 12) < 1, "the reader's 12px between rail tiles");
+      assert.ok(Math.abs(g.rail[0].t - Math.min(...g.cells.map((b) => b.t))) < 1 &&
+                Math.abs(g.rail[5].b - Math.max(...g.cells.map((b) => b.b))) < 1, "the rail fills the grid's height");
+      // the reader's tile: white, ink, 1px line border, 16px radius, its shadow and font
+      const readerFont = Math.min(23.2, Math.max(15.2, 0.0135 * w));
+      for (const r of g.rail) {
+        assert.equal(r.radius, "16px");
+        assert.equal(r.shadow, "rgba(31, 43, 44, 0.06) 0px 4px 10px 0px");
+        assert.ok(Math.abs(parseFloat(r.font) - readerFont) < 0.1, `the reader's rail font (${r.font} vs ${readerFont})`);
+        assert.match(r.family, /Avenir Next/);
+        assert.ok(r.icon && r.iconAbove, `${r.label}: icon above the word`);
+        assert.ok(!r.wordOver, `${r.label}: the word fits its tile`);
+        if (r.lit) {
+          assert.equal(r.bg, "rgb(222, 110, 75)", "current section: the reader's coral");
+          assert.equal(r.border, "1px solid rgb(199, 90, 57)");
+          assert.equal(r.color, "rgb(255, 255, 255)");
+        } else {
+          assert.equal(r.bg, "rgb(255, 255, 255)", `${r.label}: a white tile`);
+          assert.equal(r.border, "1px solid rgb(212, 221, 217)");
+          assert.equal(r.color, "rgb(31, 43, 44)", "ink text");
+        }
+      }
+      assert.deepEqual(g.rail.filter((r) => r.lit).map((r) => r.label), ["All"]);
+      const back = g.rail[0];
+      assert.equal(back.label, "Back");
+      assert.equal(back.opacity, "0.4", "Back dimmed on page 1, as the reader dims it");
+      assert.ok(back.disabled && !back.dwell, "…and out of the gaze's reach");
+      assert.ok(g.rail.slice(1).every((r) => r.opacity === "1" && r.dwell && !r.disabled), "the sections are live");
+      for (const b of [...g.rail, ...g.cells]) {
         assert.ok(b.t >= g.bar - 0.5, `below the door bar at ${w}x${h}`);
         assert.ok(b.b <= g.vh + 0.5 && b.r <= g.vw + 0.5 && b.l >= -0.5, `on screen at ${w}x${h}`);
       }
+      const all = [...g.rail, ...g.cells];
       for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
         const a = all[i], b = all[j];
         const overlap = Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
         assert.ok(!overlap, `no two tiles overlap at ${w}x${h}`);
-      }
-      const railRight = Math.max(...g.rail.map((b) => b.r)), gridLeft = Math.min(...g.cells.map((b) => b.l));
-      assert.ok(gridLeft - railRight >= 13.5, "the contract gap between rail and grid");
-      assert.ok(Math.abs(g.rail[0].t - Math.min(...g.cells.map((b) => b.t))) < 1 &&
-                Math.abs(g.rail[5].b - Math.max(...g.cells.map((b) => b.b))) < 1, "the rail fills the grid's height");
-      for (const r of g.rail) {
-        assert.ok(!r.over, "no rail label overflows");
-        assert.ok(r.font >= 74 || r.reduced, `rail label >= 74px or marked fit-impossible (${r.font}px at ${w}x${h})`);
       }
       for (const c of g.cells.filter((c) => c.cell === "2,2" || c.cell === "2,3"))
         assert.ok(c.rest && c.bg === "rgb(0, 0, 0)", "centre black");
