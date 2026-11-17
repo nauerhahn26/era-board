@@ -304,8 +304,12 @@ body{background:var(--paper); color:var(--ink);
   padding:8px 0; line-height:1.2}
 .tile.photo.full-on .full-badge{display:block}
 .tile.type-full.active{background:#2E9E4B !important; color:#fff}
-/* glyph tiles may carry a word under the arrow */
+/* glyph tiles may carry a word under the arrow. The label is held to the
+   tile's width: unbounded, a column-flex item grows to its text, so a word
+   wider than the tile overflowed its own span invisibly and fitFont's
+   scrollWidth<=clientWidth test passed at full size (clipped "Harmonicas!"). */
 .tile.glyph{flex-direction:column; gap:4px}
+.tile.glyph .tile-label{max-width:100%}
 
 /* song-page hero (dad r4): title and the full-song strip at reading size */
 .tile.photo.hero .full-badge{font-size:64px; padding:14px 0}
