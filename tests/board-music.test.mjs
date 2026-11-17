@@ -469,6 +469,9 @@ test("a board on screen never reloads for a new order; content still reloads whe
     await page.waitForTimeout(600);
     assert.equal(await page.evaluate(() => window.__stillHere === true), true, "never reloads under a playing song");
     await page.waitForFunction(() => !window.__stillHere, null, { timeout: 8000 });   // the clip ends, then it reloads
+    // the fresh page clears __stillHere before board.js has asked for the
+    // recipe; wait (bounded) for that request before counting it
+    for (const until = Date.now() + 8000; gets < 2 && Date.now() < until;) await page.waitForTimeout(50);
     assert.equal(gets, 2, "the reload fetched the recipe again");
     await ctx.close();
   } finally { await browser.close(); }
